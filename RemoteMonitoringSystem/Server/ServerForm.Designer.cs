@@ -1,6 +1,6 @@
-﻿namespace ClientA
+﻿namespace Server
 {
-    partial class Form1
+    partial class ServerForm
     {
         /// <summary>
         /// Required designer variable.
@@ -28,13 +28,35 @@
         /// </summary>
         private void InitializeComponent()
         {
-            this.components = new System.ComponentModel.Container();
+            this.rtbLogs = new System.Windows.Forms.RichTextBox();
+            this.SuspendLayout();
+            // 
+            // rtbLogs
+            // 
+            this.rtbLogs.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.rtbLogs.Location = new System.Drawing.Point(0, 0);
+            this.rtbLogs.Name = "rtbLogs";
+            this.rtbLogs.ReadOnly = true;
+            this.rtbLogs.Size = new System.Drawing.Size(800, 450);
+            this.rtbLogs.TabIndex = 0;
+            this.rtbLogs.Text = "";
+            // 
+            // ServerForm
+            // 
+            this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(800, 450);
-            this.Text = "Form1";
+            this.Controls.Add(this.rtbLogs);
+            this.Name = "ServerForm";
+            this.Text = "ServerForm";
+            this.Load += new System.EventHandler(this.ServerForm_Load_1);
+            this.ResumeLayout(false);
+
         }
 
         #endregion
+
+        private System.Windows.Forms.RichTextBox rtbLogs;
     }
 }
 
