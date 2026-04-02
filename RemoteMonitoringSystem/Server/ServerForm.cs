@@ -67,21 +67,33 @@ namespace Server
                         LogToScreen($"[NHẬN TỪ CLIENT] {receivedMessage}");
 
                         // Cắt chuỗi để phân tích lệnh (Cú pháp: LOGIN username passwordHash)
+                        // Cắt chuỗi để phân tích lệnh
                         string[] parts = receivedMessage.Split(' ');
 
+                        // 1. XỬ LÝ ĐĂNG NHẬP
                         if (parts[0] == "LOGIN" && parts.Length >= 3)
                         {
                             string username = parts[1];
                             string passHash = parts[2];
 
-                            // Gọi class DatabaseHelper để kiểm tra trong SQLite
                             bool isValid = db.ValidateUser(username, passHash);
-
-                            // Trả lời lại Client
                             string response = isValid ? "LOGIN_OK" : "LOGIN_FAIL";
+
                             byte[] responseBytes = Encoding.UTF8.GetBytes(response);
                             await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
+                            LogToScreen($"[PHẢN HỒI CLIENT] {response}");
+                        }
+                        // 2. XỬ LÝ ĐĂNG KÝ 
+                        else if (parts[0] == "REGISTER" && parts.Length >= 3)
+                        {
+                            string username = parts[1];
+                            string passHash = parts[2];
 
+                            bool isCreated = db.CreateUser(username, passHash);
+                            string response = isCreated ? "REGISTER_OK" : "REGISTER_FAIL";
+
+                            byte[] responseBytes = Encoding.UTF8.GetBytes(response);
+                            await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
                             LogToScreen($"[PHẢN HỒI CLIENT] {response}");
                         }
                     }

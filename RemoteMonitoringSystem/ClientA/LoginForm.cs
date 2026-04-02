@@ -111,5 +111,11 @@ namespace ClientA
             base.OnFormClosed(e);
             Application.Exit();
         }
+
+        private void btnRegister_Click(object sender, EventArgs e)
+        {
+            RegisterForm regForm = new RegisterForm();
+            regForm.ShowDialog(); // Dùng ShowDialog để bắt buộc thao tác xong mới về lại Login
+        }
     }
 }

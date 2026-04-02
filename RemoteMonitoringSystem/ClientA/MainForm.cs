@@ -16,5 +16,15 @@ namespace ClientA
         {
             InitializeComponent();
         }
+
+
+
+        // Ghi đè sự kiện đóng Form
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            // Lệnh này sẽ đóng toàn bộ các Form đang tàng hình và kết thúc process
+            Application.Exit();
+        }
     }
 }
