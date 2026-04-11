@@ -6,35 +6,36 @@
 -- Bật tính năng kiểm tra Khóa ngoại (Foreign Key) cho SQLite
 PRAGMA foreign_keys = ON;
 
--- 1. Bảng Users: Lưu thông tin tài khoản đăng nhập của Client A [cite: 44]
+-- 1. Bảng Users: Lưu thông tin tài khoản đăng nhập của Client A 
 CREATE TABLE IF NOT EXISTS Users (
     UserId INTEGER PRIMARY KEY AUTOINCREMENT, -- 
     Username TEXT UNIQUE NOT NULL,            -- 
-    PasswordHash TEXT NOT NULL,               -- Bắt buộc lưu mã băm (VD: SHA-256) 
-    Role TEXT DEFAULT 'User',                 -- [cite: 45, 61]
-    CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP -- [cite: 45, 61]
+    PasswordHash TEXT NOT NULL,               -- 
+    Salt    TEXT NOT NULL,
+    Role TEXT DEFAULT 'User',                 -- 
+    CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP -- 
 );
 
--- 2. Bảng Clients: Quản lý danh sách các máy bị theo dõi (Client B) [cite: 46]
+-- 2. Bảng Clients: Quản lý danh sách các máy bị theo dõi (Client B) 
 CREATE TABLE IF NOT EXISTS Clients (
-    ClientId INTEGER PRIMARY KEY AUTOINCREMENT, -- [cite: 47, 62]
-    MachineName TEXT NOT NULL,                  -- [cite: 47, 62]
-    IP TEXT,                                    -- [cite: 47, 62]
-    OwnerUserId INTEGER,                        -- Khóa ngoại trỏ về người sở hữu máy này [cite: 47, 62]
-    LastActive DATETIME,                        -- [cite: 62]
+    ClientId INTEGER PRIMARY KEY AUTOINCREMENT, -- 
+    MachineName TEXT NOT NULL,                  -- 
+    IP TEXT,                                    -- 
+    OwnerUserId INTEGER,                        -- Khóa ngoại trỏ về người sở hữu máy này 
+    LastActive DATETIME,                        -- 
     FOREIGN KEY (OwnerUserId) REFERENCES Users(UserId) ON DELETE CASCADE
 );
 
--- 3. Bảng ResourceHistory: Lưu lịch sử tài nguyên để vẽ biểu đồ [cite: 48]
+-- 3. Bảng ResourceHistory: Lưu lịch sử tài nguyên để vẽ biểu đồ 
 CREATE TABLE IF NOT EXISTS ResourceHistory (
-    Id INTEGER PRIMARY KEY AUTOINCREMENT,       -- [cite: 49]
-    ClientId INTEGER NOT NULL,                  -- [cite: 49]
-    Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, -- [cite: 49]
-    CpuPercent REAL,                            -- [cite: 49]
-    RamPercent REAL,                            -- [cite: 49]
-    DiskPercent REAL,                           -- [cite: 49]
-    NetworkDown REAL,                           -- [cite: 49]
-    NetworkUp REAL,                             -- [cite: 49]
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,       -- 
+    ClientId INTEGER NOT NULL,                  -- 
+    Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, -- 
+    CpuPercent REAL,                            -- 
+    RamPercent REAL,                            -- 
+    DiskPercent REAL,                           -- 
+    NetworkDown REAL,                           -- 
+    NetworkUp REAL,                             -- 
     AppList TEXT,                               -- Lưu danh sách process dưới dạng chuỗi (JSON hoặc Text phân tách)
     FOREIGN KEY (ClientId) REFERENCES Clients(ClientId) ON DELETE CASCADE
 );

@@ -1,9 +1,13 @@
 ﻿using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Net.Security;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Server
 {
@@ -22,7 +26,7 @@ namespace Server
         private async void ServerForm_Load_1(object sender, EventArgs e)
         {
             LogToScreen("=== SERVER ĐIỀU KHIỂN & GIÁM SÁT ===");
-            await StartServerAsync();
+            await Task.Run(() => StartServerAsync());
         }
 
         private async Task StartServerAsync()
@@ -38,7 +42,7 @@ namespace Server
                 while (true)
                 {
                     // Dùng AcceptTcpClientAsync để không chặn luồng UI
-                    TcpClient client = await listener.AcceptTcpClientAsync();
+                    TcpClient client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
                     LogToScreen($"[KẾT NỐI MỚI] Client từ: {client.Client.RemoteEndPoint}");
 
                     // Xử lý đọc dữ liệu từ Client (cũng dùng bất đồng bộ)
@@ -55,53 +59,78 @@ namespace Server
         {
             try
             {
-                using (NetworkStream stream = client.GetStream())
+                // Tắt Nagle
+                client.NoDelay = true;
+                using (NetworkStream netStream = client.GetStream())
+                using (SslStream sslStream = new SslStream(netStream, false, ValidateClientCertificate))
                 {
-                    byte[] buffer = new byte[1024];
-                    // Đọc gói tin từ Client A
-                    int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                    X509Certificate2 serverCertificate = new X509Certificate2("ServerCertECC.pfx", "NT106.Q23");
+                    await sslStream.AuthenticateAsServerAsync(serverCertificate, clientCertificateRequired: true, enabledSslProtocols: SslProtocols.Tls12, checkCertificateRevocation: false);
 
-                    if (bytesRead > 0)
+                    LogToScreen($"[TLS-ECC] Đã kết nối an toàn với {client.Client.RemoteEndPoint}");
+
+                    // SỬ DỤNG STREAM READER ĐỂ ĐỌC DỮ LIỆU LIÊN TỤC KHÔNG BỊ RỚT GÓI
+                    using (StreamReader reader = new StreamReader(sslStream, Encoding.UTF8))
+                    using (StreamWriter writer = new StreamWriter(sslStream, Encoding.UTF8) { AutoFlush = true })
                     {
-                        string receivedMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                        LogToScreen($"[NHẬN TỪ CLIENT] {receivedMessage}");
+                        string receivedMessage;
 
-                        // Cắt chuỗi để phân tích lệnh (Cú pháp: LOGIN username passwordHash)
-                        // Cắt chuỗi để phân tích lệnh
-                        string[] parts = receivedMessage.Split(' ');
-
-                        // 1. XỬ LÝ ĐĂNG NHẬP
-                        if (parts[0] == "LOGIN" && parts.Length >= 3)
+                        // Hàm ReadLineAsync sẽ tự động dừng chờ cho đến khi Client B gửi ký tự "\n"
+                        while ((receivedMessage = await reader.ReadLineAsync()) != null)
                         {
-                            string username = parts[1];
-                            string passHash = parts[2];
+                            // Kiểm tra chuỗi rỗng do ping rác mạng
+                            if (string.IsNullOrWhiteSpace(receivedMessage)) continue;
 
-                            bool isValid = db.ValidateUser(username, passHash);
-                            string response = isValid ? "LOGIN_OK" : "LOGIN_FAIL";
+                            string[] parts = receivedMessage.Split(' ');
 
-                            byte[] responseBytes = Encoding.UTF8.GetBytes(response);
-                            await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
-                            LogToScreen($"[PHẢN HỒI CLIENT] {response}");
-                        }
-                        // 2. XỬ LÝ ĐĂNG KÝ 
-                        else if (parts[0] == "REGISTER" && parts.Length >= 3)
-                        {
-                            string username = parts[1];
-                            string passHash = parts[2];
+                            if (parts[0] == "GET_SALT" && parts.Length >= 2)
+                            {
+                                string salt = db.GetUserSalt(parts[1]);
+                                // Gửi phản hồi bằng writer cho gọn, tự động có \n do dùng WriteLineAsync
+                                await writer.WriteLineAsync(salt != null ? $"SALT {salt}" : "SALT_NOT_FOUND");
+                            }
+                            else if (parts[0] == "REGISTER" && parts.Length >= 4)
+                            {
+                                bool isCreated = db.CreateUser(parts[1], parts[2], parts[3]);
+                                await writer.WriteLineAsync(isCreated ? "REGISTER_OK" : "REGISTER_FAIL");
+                                LogToScreen($"[ĐĂNG KÝ] {parts[1]}");
+                            }
+                            else if (parts[0] == "LOGIN" && parts.Length >= 3)
+                            {
+                                bool isValid = db.ValidateUser(parts[1], parts[2]);
+                                await writer.WriteLineAsync(isValid ? "LOGIN_OK" : "LOGIN_FAIL");
+                                LogToScreen($"[ĐĂNG NHẬP] {parts[1]}");
+                            }
+                            else if (parts[0] == "PUSH_RESOURCE" && parts.Length >= 9)
+                            {
+                                string clientId = parts[1];
+                                string cpu = parts[2];
+                                string ram = parts[3];
+                                string disk = parts[4];
+                                string netUp = parts[5];
+                                string netDown = parts[6];
+                                string machineName = parts[7];
+                                string ipAddress = parts[8];
 
-                            bool isCreated = db.CreateUser(username, passHash);
-                            string response = isCreated ? "REGISTER_OK" : "REGISTER_FAIL";
+                                string appList = parts.Length > 9 ? string.Join(" ", parts, 9, parts.Length - 9) : "";
 
-                            byte[] responseBytes = Encoding.UTF8.GetBytes(response);
-                            await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
-                            LogToScreen($"[PHẢN HỒI CLIENT] {response}");
+                                LogToScreen($"[TÀI NGUYÊN] ID:{clientId} ({machineName} - IP: {ipAddress}) | CPU: {cpu}% | RAM: {ram}MB | Ổ C: {disk}% | Net: ↓{netDown} KB/s ↑{netUp} KB/s"); db.AddResourceHistory(clientId, cpu, ram, parts[4], parts[5], parts[6], appList);
+                                db.AddResourceHistory(clientId, cpu, ram, disk, netDown, netUp, appList);
+
+                            }
                         }
                     }
                 }
             }
+
+            catch (IOException)
+            {
+                // Bỏ qua lỗi ngắt kết nối đột ngột từ Client (ví dụ Client tắt ngang app)
+                LogToScreen("[NGẮT KẾT NỐI] Một Client đã rời đi.");
+            }
             catch (Exception ex)
             {
-                LogToScreen("[LỖI CLIENT] " + ex.Message);
+                LogToScreen("[LỖI mTLS CLIENT] " + ex.Message);
             }
             finally
             {
@@ -109,6 +138,19 @@ namespace Server
             }
         }
 
+        private bool ValidateClientCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            if (certificate == null) return false;
+
+            X509Certificate2 cert2 = new X509Certificate2(certificate);
+
+            // Kiểm tra xem chứng chỉ có phải do Root CA ECC cấp không
+            if (cert2.Issuer.Contains("UIT_ECC_RootCA") && cert2.Subject.Contains("RemoteMonitorClient"))
+            {
+                return true;
+            }
+            return false;
+        }
 
         // Hàm hỗ trợ in chữ lên màn hình một cách an toàn
         private void LogToScreen(string message)
@@ -119,7 +161,7 @@ namespace Server
                 return;
             }
             rtbLogs.AppendText($"{DateTime.Now:HH:mm:ss} - {message}{Environment.NewLine}");
-            rtbLogs.ScrollToCaret(); // Tự động cuộn xuống dòng mới nhất
+            rtbLogs.ScrollToCaret(); 
         }
 
         // Tắt Server an toàn khi đóng Form

@@ -1,15 +1,13 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
+using System.IO;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Net.Sockets;
-using System.Text;
-using System.Security.Cryptography;
-
 
 namespace ClientA
 {
@@ -20,7 +18,18 @@ namespace ClientA
             InitializeComponent();
         }
 
-        private void btnSubmitRegister_Click(object sender, EventArgs e)
+        private string GenerateSalt(int length = 16)
+        {
+            byte[] saltBytes = new byte[length];
+            using (var rng = new RNGCryptoServiceProvider())
+            {
+                rng.GetBytes(saltBytes);
+            }
+            return Convert.ToBase64String(saltBytes);
+        }
+
+        // Nhớ thêm chữ async vào đây
+        private async void btnSubmitRegister_Click(object sender, EventArgs e)
         {
             string username = txtRegUsername.Text.Trim();
             string password = txtRegPassword.Text;
@@ -38,33 +47,38 @@ namespace ClientA
                 return;
             }
 
-            // Băm mật khẩu để gửi đi cho an toàn
-            string passwordHash = ComputeSha256Hash(password);
-            string registerMessage = $"REGISTER {username} {passwordHash}";
+            string salt = GenerateSalt();
+            string passwordHash = ComputeSha256Hash(password + salt);
 
             try
             {
-                // Mở Socket đến Server
                 using (TcpClient client = new TcpClient("127.0.0.1", 5000))
-                using (NetworkStream stream = client.GetStream())
+                using (NetworkStream netStream = client.GetStream())
+                using (SslStream sslStream = new SslStream(netStream, false, ValidateServerCertificate))
                 {
-                    // Gửi lệnh REGISTER
-                    byte[] sendData = Encoding.UTF8.GetBytes(registerMessage);
-                    stream.Write(sendData, 0, sendData.Length);
+                    X509Certificate2 clientCertificate = new X509Certificate2("ClientCertECC.pfx", "NT106.Q23");
+                    X509CertificateCollection clientCerts = new X509CertificateCollection(new X509Certificate[] { clientCertificate });
 
-                    // Nhận phản hồi
-                    byte[] receiveBuffer = new byte[1024];
-                    int bytesRead = stream.Read(receiveBuffer, 0, receiveBuffer.Length);
-                    string response = Encoding.UTF8.GetString(receiveBuffer, 0, bytesRead);
+                    await sslStream.AuthenticateAsClientAsync("RemoteMonitorServer", clientCerts, SslProtocols.Tls12, false);
 
-                    if (response == "REGISTER_OK")
+                    using (StreamReader reader = new StreamReader(sslStream, Encoding.UTF8))
+                    using (StreamWriter writer = new StreamWriter(sslStream, Encoding.UTF8) { AutoFlush = true })
                     {
-                        MessageBox.Show("Đăng ký tài khoản thành công!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        this.Close(); // Đóng form đăng ký, quay lại form đăng nhập
-                    }
-                    else
-                    {
-                        MessageBox.Show("Tên đăng nhập đã tồn tại hoặc có lỗi xảy ra!", "Đăng ký thất bại", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        // Gửi lệnh REGISTER (writer.WriteLineAsync tự nối \n)
+                        await writer.WriteLineAsync($"REGISTER {username} {passwordHash} {salt}");
+
+                        // Nhận phản hồi
+                        string response = await reader.ReadLineAsync();
+
+                        if (response == "REGISTER_OK")
+                        {
+                            MessageBox.Show("Đăng ký tài khoản thành công!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            this.Close();
+                        }
+                        else
+                        {
+                            MessageBox.Show("Tên đăng nhập đã tồn tại hoặc có lỗi xảy ra!", "Đăng ký thất bại", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
                     }
                 }
             }
@@ -74,7 +88,6 @@ namespace ClientA
             }
         }
 
-        // Copy lại hàm băm SHA-256 từ LoginForm sang đây
         private string ComputeSha256Hash(string rawData)
         {
             using (SHA256 sha256Hash = SHA256.Create())
@@ -87,6 +100,17 @@ namespace ClientA
                 }
                 return builder.ToString();
             }
+        }
+
+        private bool ValidateServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            if (certificate == null) return false;
+            X509Certificate2 cert2 = new X509Certificate2(certificate);
+            if (cert2.Issuer.Contains("UIT_ECC_RootCA") && cert2.Subject.Contains("RemoteMonitorServer"))
+            {
+                return true;
+            }
+            return false;
         }
     }
 }
