@@ -65,7 +65,7 @@ namespace ClientB
         private async void btnStart_Click(object sender, EventArgs e)
         {
             btnStart.Enabled = false;
-            lblStatus.Text = "Trạng thái: Đang thiết lập kênh mTLS...";
+            lblStatus.Text = "Đang thiết lập kênh mTLS...";
             lblStatus.ForeColor = System.Drawing.Color.DarkOrange;
 
             bool isConnected = await ConnectToServerAsync();
@@ -73,7 +73,7 @@ namespace ClientB
             if (isConnected)
             {
                 btnStop.Enabled = true;
-                lblStatus.Text = "Trạng thái: Đang gửi dữ liệu (OK)";
+                lblStatus.Text = "Đang gửi dữ liệu (OK)";
                 lblStatus.ForeColor = System.Drawing.Color.Green;
                 timerPush.Start();
             }
@@ -134,7 +134,7 @@ namespace ClientB
 
             btnStart.Enabled = true;
             btnStop.Enabled = false;
-            lblStatus.Text = "Trạng thái: Đã dừng.";
+            lblStatus.Text = "Đã dừng.";
             lblStatus.ForeColor = System.Drawing.Color.Red;
         }
 
@@ -240,7 +240,7 @@ namespace ClientB
             {
                 this.Invoke((Action)(() => {
                     btnStop_Click(null, null);
-                    lblStatus.Text = "Trạng thái: Máy chủ đã ngắt kết nối.";
+                    lblStatus.Text = "Máy chủ đã ngắt kết nối.";
                     lblStatus.ForeColor = System.Drawing.Color.Red;
                 }));
             }
