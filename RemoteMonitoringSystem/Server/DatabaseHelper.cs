@@ -109,5 +109,51 @@ namespace Server
                 }
             }
         }
+
+        // Hàm lấy thông số CPU, RAM, Network, Info và AppList mới nhất
+        public string GetLatestResource(string clientId)
+        {
+            using (SQLiteConnection conn = new SQLiteConnection(connectionString))
+            {
+                try
+                {
+                    conn.Open();
+                    // Dùng JOIN để kết nối bảng ResourceHistory (chứa mạng, phần cứng) và bảng Clients (chứa Tên máy, IP)
+                    string query = @"
+                        SELECT r.CpuPercent, r.RamPercent, r.NetworkDown, r.NetworkUp, r.AppList, c.MachineName, c.IP 
+                        FROM ResourceHistory r 
+                        JOIN Clients c ON r.ClientId = c.ClientId 
+                        WHERE r.ClientId = @cId 
+                        ORDER BY r.Timestamp DESC LIMIT 1";
+
+                    using (SQLiteCommand cmd = new SQLiteCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@cId", clientId);
+                        using (SQLiteDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                string cpu = reader["CpuPercent"].ToString();
+                                string ram = reader["RamPercent"].ToString();
+                                string netDown = reader["NetworkDown"].ToString();
+                                string netUp = reader["NetworkUp"].ToString();
+                                string machineName = reader["MachineName"].ToString();
+                                string ip = reader["IP"].ToString();
+
+                                string appList = reader["AppList"] != DBNull.Value ? reader["AppList"].ToString() : "NONE";
+
+                                // Trả về chuỗi gộp 7 thông số cách nhau bởi khoảng trắng
+                                return $"{cpu} {ram} {netDown} {netUp} {machineName} {ip} {appList}";
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("[LỖI ĐỌC LỊCH SỬ DB] " + ex.Message);
+                }
+                return null;
+            }
+        }
     }
 }

@@ -33,10 +33,10 @@ namespace Server
         {
             try
             {
-                // Khởi tạo Socket lắng nghe ở Port 5000
-                listener = new TcpListener(IPAddress.Any, 5000);
+                // Khởi tạo Socket lắng nghe ở Port 8888
+                listener = new TcpListener(IPAddress.Any, 8888);
                 listener.Start();
-                LogToScreen("Server đang lắng nghe tại Port 5000...");
+                LogToScreen("Server đang lắng nghe tại Port 8888...");
 
                 // Vòng lặp bất đồng bộ để liên tục chờ Client
                 while (true)
@@ -75,18 +75,16 @@ namespace Server
                     {
                         string receivedMessage;
 
-                        // Hàm ReadLineAsync sẽ tự động dừng chờ cho đến khi Client B gửi ký tự "\n"
                         while ((receivedMessage = await reader.ReadLineAsync()) != null)
                         {
-                            // Kiểm tra chuỗi rỗng do ping rác mạng
-                            if (string.IsNullOrWhiteSpace(receivedMessage)) continue;
+                            if (string.IsNullOrWhiteSpace(receivedMessage)) 
+                                continue;
 
                             string[] parts = receivedMessage.Split(' ');
 
                             if (parts[0] == "GET_SALT" && parts.Length >= 2)
                             {
                                 string salt = db.GetUserSalt(parts[1]);
-                                // Gửi phản hồi bằng writer cho gọn, tự động có \n do dùng WriteLineAsync
                                 await writer.WriteLineAsync(salt != null ? $"SALT {salt}" : "SALT_NOT_FOUND");
                             }
                             else if (parts[0] == "REGISTER" && parts.Length >= 4)
@@ -114,9 +112,28 @@ namespace Server
 
                                 string appList = parts.Length > 9 ? string.Join(" ", parts, 9, parts.Length - 9) : "";
 
-                                LogToScreen($"[TÀI NGUYÊN] ID:{clientId} ({machineName} - IP: {ipAddress}) | CPU: {cpu}% | RAM: {ram}MB | Ổ C: {disk}% | Net: ↓{netDown} KB/s ↑{netUp} KB/s"); db.AddResourceHistory(clientId, cpu, ram, parts[4], parts[5], parts[6], appList);
+                                LogToScreen($"[TÀI NGUYÊN] ID:{clientId} ({machineName} - IP: {ipAddress}) | CPU: {cpu}% | RAM: {ram}% | Ổ C: {disk}% | Net: ↓{netDown} KB/s ↑{netUp} KB/s"); db.AddResourceHistory(clientId, cpu, ram, parts[4], parts[5], parts[6], appList);
                                 db.AddResourceHistory(clientId, cpu, ram, disk, netDown, netUp, appList);
 
+                            }
+
+                            else if (parts[0] == "GET_LATEST" && parts.Length >= 2)
+                            {
+                                string targetClientId = parts[1];
+
+                                // Bạn cần viết thêm hàm GetLatestResource trong DatabaseHelper
+                                // Hàm này sẽ dùng lệnh SQL: "SELECT CpuPercent, RamPercent FROM ResourceHistory WHERE ClientId = @cId ORDER BY Timestamp DESC LIMIT 1"
+                                string latestData = db.GetLatestResource(targetClientId);
+
+                                if (latestData != null)
+                                {
+                                    // latestData có dạng "45.5 60.2"
+                                    await writer.WriteLineAsync($"LATEST_DATA {latestData}");
+                                }
+                                else
+                                {
+                                    await writer.WriteLineAsync("NO_DATA");
+                                }
                             }
                         }
                     }
