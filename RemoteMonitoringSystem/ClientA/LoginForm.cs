@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -30,10 +31,12 @@ namespace ClientA
             }
 
             bool isLoginSuccess = false;
+            string userRole = "User"; // Mặc định là User
+
 
             try
             {
-                using (TcpClient client = new TcpClient("127.0.0.1", 8888))
+                using (TcpClient client = new TcpClient("192.168.31.198", 8888))
                 using (NetworkStream netStream = client.GetStream())
                 using (SslStream sslStream = new SslStream(netStream, false, ValidateServerCertificate))
                 {
@@ -48,32 +51,54 @@ namespace ClientA
                     using (StreamReader reader = new StreamReader(sslStream, Encoding.UTF8))
                     using (StreamWriter writer = new StreamWriter(sslStream, Encoding.UTF8) { AutoFlush = true })
                     {
-                        // XIN SALT TỪ SERVER (Dùng WriteLineAsync để tự động thêm \n)
-                        await writer.WriteLineAsync($"GET_SALT {username}");
-                        
-                        // Chờ Server trả về Salt
+                        // 3. XIN SALT TỪ SERVER (Sử dụng định dạng JSON)
+                        var getSaltRequest = new
+                        {
+                            Type = "GET_SALT",
+                            Username = username
+                        };
+
+                        await writer.WriteLineAsync(JsonConvert.SerializeObject(getSaltRequest));
+
+                        // Chờ Server trả về Salt (Server hiện đang trả về: "SALT <chuỗi_salt>" hoặc "NOT_FOUND")
                         string saltResponse = await reader.ReadLineAsync();
 
-                        if (saltResponse == null || !saltResponse.StartsWith("SALT "))
+                        if (string.IsNullOrEmpty(saltResponse) || saltResponse == "NOT_FOUND")
                         {
                             MessageBox.Show("Tài khoản không tồn tại!", "Lỗi xác thực", MessageBoxButtons.OK, MessageBoxIcon.Error);
                             return;
                         }
 
-                        string salt = saltResponse.Substring(5);
+                        // --- Cắt bỏ 5 ký tự đầu tiên ("SALT ") để lấy đúng chuỗi Salt gốc ---
+                        string actualSalt = saltResponse.Substring(5).Trim();
 
-                        // BĂM MẬT KHẨU CÙNG VỚI SALT VÀ ĐĂNG NHẬP
-                        string passwordHash = ComputeSha256Hash(password + salt);
-                        
-                        // Gửi lệnh LOGIN
-                        await writer.WriteLineAsync($"LOGIN {username} {passwordHash}");
+                        // 4. BĂM MẬT KHẨU CÙNG VỚI SALT GỐC VÀ ĐĂNG NHẬP
+                        string passwordHash = ComputeSha256Hash(password + actualSalt);
 
-                        // Chờ Server trả lời
+                        // Đóng gói lệnh LOGIN thành JSON
+                        var loginRequest = new
+                        {
+                            Type = "LOGIN",
+                            Username = username,
+                            Password = passwordHash
+                        };
+
+                        await writer.WriteLineAsync(JsonConvert.SerializeObject(loginRequest));
+
+                        // Chờ Server trả lời ("LOGIN_OK" hoặc "LOGIN_FAIL")
                         string loginResponse = await reader.ReadLineAsync();
 
-                        if (loginResponse == "LOGIN_OK")
+
+                        if (loginResponse != null && loginResponse.StartsWith("LOGIN_OK"))
                         {
                             isLoginSuccess = true;
+
+                            // Bóc tách để lấy quyền (Admin hoặc User) nằm sau dấu khoảng trắng
+                            string[] parts = loginResponse.Split(' ');
+                            if (parts.Length > 1)
+                            {
+                                userRole = parts[1];
+                            }
                         }
                     }
                 }
@@ -84,10 +109,10 @@ namespace ClientA
                 return;
             }
 
-            // Xử lý chuyển giao diện
+            // 5. Xử lý chuyển giao diện
             if (isLoginSuccess)
             {
-                MainForm mainForm = new MainForm();
+                MainForm mainForm = new MainForm(userRole);
                 mainForm.Show();
                 this.Hide();
             }

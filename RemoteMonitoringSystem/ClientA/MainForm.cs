@@ -7,6 +7,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Newtonsoft.Json;
 
 namespace ClientA
 {
@@ -17,12 +18,14 @@ namespace ClientA
         private SslStream sslStream;
         private StreamReader reader;
         private StreamWriter writer;
+        private string currentTargetClientId = "1";
+        private string currentUserRole; // Thêm biến lưu quyền
 
         // Biến dùng để Sort A-Z, Z-A
         private int sortColumn = -1; // Cột đang được chọn để sort
         private SortOrder sortOrder = SortOrder.None; // Chiều sort
 
-        public MainForm()
+        public MainForm(string role)
         {
             InitializeComponent();
             SetupChartAppearance();
@@ -31,9 +34,35 @@ namespace ClientA
 
             // Gắn sự kiện Load để tự động kết nối khi mở Form
             this.Load += MainForm_Load;
+
+            // Nhận quyền và áp dụng thiết lập
+            currentUserRole = role;
+            ApplySecurityPolicies();
         }
 
         // 2. Tự động thiết lập đường hầm bảo mật khi Form hiện lên
+        private void ApplySecurityPolicies()
+        {
+            if (currentUserRole != "Admin")
+            {
+                // 1. Khóa nút chuột phải "End Task" (Chỉ cho xem, cấm tắt)
+                if (menuEndTaskToolStripMenuItem != null)
+                {
+                    menuEndTaskToolStripMenuItem.Enabled = false;
+                }
+
+                // 2. Tùy chọn: Xóa luôn Tab Admin để người dùng bình thường không tự thêm máy được
+                // (Thay 'tabPage2' bằng đúng tên `Name` của tab Admin trong Properties giao diện của bạn)
+                if (guna2TabControl1.TabPages.Count > 1)
+                {
+                    guna2TabControl1.TabPages.RemoveAt(1); // Xóa tab số 2 (Tab Admin)
+                }
+
+                // Bạn có thể đổi Title form cho chuyên nghiệp
+                this.Text = "Remote Monitor — Dashboard: [READ ONLY - USER MODE]";
+            }
+        }
+
         private async void MainForm_Load(object sender, EventArgs e)
         {
             bool connected = await ConnectToServerAsync();
@@ -48,7 +77,7 @@ namespace ClientA
         {
             try
             {
-                client = new TcpClient("127.0.0.1", 8888);
+                client = new TcpClient("192.168.31.198", 8888);
                 NetworkStream netStream = client.GetStream();
 
                 // Thiết lập lớp giáp SslStream
@@ -84,16 +113,17 @@ namespace ClientA
             chart1.ChartAreas[0].AxisY.MajorGrid.LineColor = System.Drawing.Color.LightGray;
         }
 
-        public void UpdateResourceChart(double cpuPercent, double ramPercent)
+        public void UpdateResourceChart(double cpuPercent, double ramPercent, double diskPercent)
         {
             if (this.chart1.InvokeRequired)
             {
-                this.chart1.Invoke(new Action(() => UpdateResourceChart(cpuPercent, ramPercent)));
+                this.chart1.Invoke(new Action(() => UpdateResourceChart(cpuPercent, ramPercent, diskPercent)));
                 return;
             }
 
             string currentTime = DateTime.Now.ToString("HH:mm:ss");
 
+            // Cập nhật biểu đồ đường cho CPU và RAM
             chart1.Series["CPU"].Points.AddXY(currentTime, cpuPercent);
             chart1.Series["RAM"].Points.AddXY(currentTime, ramPercent);
 
@@ -104,14 +134,27 @@ namespace ClientA
                 chart1.Series["RAM"].Points.RemoveAt(0);
             }
 
-            // Cập nhật các thành phần UI khác
+            // --- Cập nhật các ProgressBar ---
             progressBar1.Value = (int)Math.Min(100, Math.Max(0, cpuPercent));
             progressBar3.Value = (int)Math.Min(100, Math.Max(0, ramPercent));
+
+            // Cập nhật ProgressBar4 cho Ổ đĩa
+            if (progressBar4 != null)
+            {
+                progressBar4.Value = (int)Math.Min(100, Math.Max(0, diskPercent));
+            }
+
+            // --- Cập nhật các Label % ---
             lblPercentCPU.Text = $"{Math.Round(cpuPercent, 1)}%";
             lblPercentRam.Text = $"{Math.Round(ramPercent, 1)}%";
+
+            // Cập nhật Label cho Ổ đĩa
+            if (lblPercentDisk != null)
+            {
+                lblPercentDisk.Text = $"{Math.Round(diskPercent, 1)}%";
+            }
         }
 
-        // Hàm cập nhật danh sách ứng dụng lên ListView an toàn và giữ nguyên vị trí cuộn
         public void UpdateAppList(string appListData)
         {
             if (this.listView1.InvokeRequired)
@@ -124,6 +167,13 @@ namespace ClientA
             {
                 listView1.Items.Clear();
                 return;
+            }
+
+            // --- LƯU LẠI TIẾN TRÌNH ĐANG CHỌN (Tránh bị mất focus khi click) ---
+            string selectedProcess = "";
+            if (listView1.SelectedItems.Count > 0)
+            {
+                selectedProcess = listView1.SelectedItems[0].Text; // Ghi nhớ file .exe bạn đang click
             }
 
             // 1. LƯU LẠI VỊ TRÍ THANH CUỘN HIỆN TẠI
@@ -166,9 +216,24 @@ namespace ClientA
                 listView1.TopItem = listView1.Items[topItemIndex];
             }
 
+            // --- BƯỚC MỚI: PHỤC HỒI LẠI TIẾN TRÌNH ĐÃ CHỌN ---
+            if (!string.IsNullOrEmpty(selectedProcess)) 
+            {
+                foreach (ListViewItem item in listView1.Items)
+                {
+                    if (item.Text == selectedProcess)
+                    {
+                        item.Selected = true;
+                        // item.Focused = true; // Bỏ comment dòng này nếu bạn muốn có thêm khung viền nét đứt bao quanh
+                        break; // Tìm thấy rồi thì thoát vòng lặp cho nhẹ máy
+                    }
+                }
+            }
+
             // 4. MỞ LẠI GIAO DIỆN
             listView1.EndUpdate();
         }
+
 
         // Hàm hiển thị thông tin tĩnh lên các Label (An toàn đa luồng)
         public void UpdateSystemInfo(string machineName, string ip, string netDown, string netUp)
@@ -181,8 +246,6 @@ namespace ClientA
 
             lblMachineName.Text = machineName;
             lblip.Text = ip;
-
-            // Client B đang gửi lên đơn vị là KBps, ta thêm hậu tố cho đẹp
             lblNetDown.Text = $"{netDown} KB/s";
             lblNetUp.Text = $"{netUp} KB/s";
         }
@@ -191,55 +254,87 @@ namespace ClientA
         {
             try
             {
+                // 1. Kiểm tra mạng và xem đã chọn máy nào chưa
                 if (writer == null || reader == null) return;
+                if (string.IsNullOrEmpty(currentTargetClientId)) return;
 
-                // Gửi lệnh lấy dữ liệu mới nhất (ID mặc định là 1)
-                await writer.WriteLineAsync("GET_LATEST 1");
+                // 2. GỬI YÊU CẦU LẤY DỮ LIỆU
+                var fetchRequest = new
+                {
+                    Type = "GET_LATEST",
+                    TargetClientId = currentTargetClientId
+                };
+                await writer.WriteLineAsync(JsonConvert.SerializeObject(fetchRequest));
 
+                // 3. NHẬN PHẢN HỒI TỪ SERVER
                 string response = await reader.ReadLineAsync();
 
                 if (response != null && response.StartsWith("LATEST_DATA"))
                 {
-                    // Cắt bỏ chữ LATEST_DATA ở đầu
-                    string data = response.Substring("LATEST_DATA ".Length);
+                    // Lấy chuỗi JSON thực sự ở phía sau chữ "LATEST_DATA "
+                    string payload = response.Substring("LATEST_DATA ".Length).Trim();
 
-                    // Cắt chuỗi thành TỐI ĐA 7 phần (để bảo toàn các khoảng trắng trong AppList ở phần cuối cùng)
-                    string[] parts = data.Split(new char[] { ' ' }, 7);
+                    // --- ĐÂY LÀ ĐIỂM QUAN TRỌNG NHẤT: DÙNG JSON ĐỂ GIẢI MÃ ---
+                    dynamic data = JsonConvert.DeserializeObject(payload);
 
-                    if (parts.Length >= 6) // Đảm bảo có ít nhất 6 thông số cơ bản
+                    if (data != null)
                     {
-                        // 1. Gán dữ liệu cho Biểu đồ
-                        double cpuPercent = Convert.ToDouble(parts[0]);
-                        double ramPercent = Convert.ToDouble(parts[1]);
-                        UpdateResourceChart(cpuPercent, ramPercent);
+                        // A. Cập nhật Biểu đồ (Ép kiểu an toàn từ JSON)
+                        double cpuPercent = Convert.ToDouble(data.Cpu);
+                        double ramPercent = Convert.ToDouble(data.Ram);
+                        double diskPercent = Convert.ToDouble(data.Disk);
 
-                        // 2. Gán dữ liệu cho Label Hệ thống (Tên máy, IP, Mạng)
-                        string netDown = parts[2];
-                        string netUp = parts[3];
-                        string machineName = parts[4];
-                        string ip = parts[5];
+                        UpdateResourceChart(cpuPercent, ramPercent, diskPercent);
+
+                        // B. Cập nhật Label hệ thống
+                        string machineName = (string)data.MachineName;
+                        string ip = (string)data.IP;
+                        string netDown = (string)data.NetDown;
+                        string netUp = (string)data.NetUp;
+
                         UpdateSystemInfo(machineName, ip, netDown, netUp);
 
-                        // 3. Gán dữ liệu cho Bảng ứng dụng (Nếu có phần thứ 7)
-                        if (parts.Length == 7)
-                        {
-                            UpdateAppList(parts[6]);
-                        }
-                        else
+                        // C. Cập nhật Danh sách tiến trình
+                        string appList = (string)data.AppList;
+                        if (string.IsNullOrEmpty(appList) || appList == "NONE")
                         {
                             UpdateAppList("NONE");
                         }
+                        else
+                        {
+                            UpdateAppList(appList);
+                        }
                     }
                 }
-            }
+                else if (response == "NO_DATA")
+                {
+                    this.Invoke(new Action(() => {
+                        lblip.Text = "Trạng thái: Máy trạm chưa có dữ liệu.";
+                    }));
+                }
 
-            catch
+                else if (response != null && response.StartsWith("CLIENT_LIST"))
+                {
+                    string listPayload = response.Substring("CLIENT_LIST ".Length).Trim();
+                    dynamic clients = JsonConvert.DeserializeObject(listPayload);
+
+                    this.Invoke(new Action(() => {
+                        dgvClients.Rows.Clear();
+                        foreach (var c in clients)
+                        {
+                            // Gắn vào bảng: Cột 0 (ID), Cột 1 (Tên máy), Cột 2 (IP)
+                            dgvClients.Rows.Add((string)c.ClientId, (string)c.MachineName, (string)c.IP);
+                        }
+                    }));
+                }
+            }
+            catch (Exception ex)
             {
                 timerFetchData.Stop();
-                MessageBox.Show("Mất kết nối luồng giám sát với Server!");
+                MessageBox.Show($"Mất kết nối với Server Dashboard: {ex.Message}",
+                                "Lỗi Hệ Thống", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-
         private bool ValidateServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
         {
             if (certificate == null) return false;
@@ -256,6 +351,16 @@ namespace ClientA
             Application.Exit();
         }
 
+        private async void EndTask_Click(object sender, EventArgs e)
+        {
+            if (listView1.SelectedItems.Count > 0)
+            {
+                string pName = listView1.SelectedItems[0].Text;
+                var cmd = new { Type = "REMOTE_KILL", TargetClientId = "1", ProcessName = pName };
+                await writer.WriteLineAsync(JsonConvert.SerializeObject(cmd));
+                MessageBox.Show($"Đã gửi lệnh tắt: {pName}");
+            }
+        }
 
         private void listView1_ColumnClick(object sender, ColumnClickEventArgs e)
         {
@@ -321,6 +426,81 @@ namespace ClientA
                 if (double.TryParse(numberOnly, out double result))
                     return result;
                 return 0;
+            }
+        }
+
+        private async void EndTaskToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (listView1.SelectedItems.Count > 0)
+            {
+                string pName = listView1.SelectedItems[0].Text;
+                string windowTitle = listView1.SelectedItems[0].SubItems[1].Text;
+
+                // Nếu chưa chọn máy nào thì báo lỗi
+                if (string.IsNullOrEmpty(currentTargetClientId))
+                {
+                    MessageBox.Show("Vui lòng chọn một máy tính từ Tab Admin trước!", "Lỗi");
+                    return;
+                }
+
+                var confirm = MessageBox.Show($"Bạn có chắc chắn muốn tắt ứng dụng: {windowTitle} ({pName}) trên máy [{currentTargetClientId}]?",
+                                             "Xác nhận Remote Kill",
+                                             MessageBoxButtons.YesNo,
+                                             MessageBoxIcon.Warning);
+
+                if (confirm == DialogResult.Yes)
+                {
+                    try
+                    {
+                        var request = new
+                        {
+                            Type = "REMOTE_KILL",
+                            TargetClientId = currentTargetClientId, // Gửi lệnh Kill tới ID đang theo dõi
+                            ProcessName = pName
+                        };
+
+                        string jsonRequest = JsonConvert.SerializeObject(request);
+
+                        if (writer != null)
+                        {
+                            await writer.WriteLineAsync(jsonRequest);
+                            MessageBox.Show($"Đã gửi lệnh tắt {pName} thành công!", "Thông báo");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Lỗi khi gửi lệnh: " + ex.Message);
+                    }
+                }
+            }
+        }
+
+        private void dgvClients_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0)
+            {
+                string selectedId = dgvClients.Rows[e.RowIndex].Cells[0].Value?.ToString();
+                if (!string.IsNullOrEmpty(selectedId))
+                {
+                    currentTargetClientId = selectedId; // Chuyển mục tiêu theo dõi
+
+                    // Xóa rỗng biểu đồ và bảng ứng dụng cũ để chuẩn bị đón data máy mới
+                    chart1.Series["CPU"].Points.Clear();
+                    chart1.Series["RAM"].Points.Clear();
+                    listView1.Items.Clear();
+
+                    // Nhảy sang Tab Theo dõi
+                    guna2TabControl1.SelectedIndex = 0;
+                }
+            }
+        }
+
+        private async void btnRefreshList_Click(object sender, EventArgs e)
+        {
+            if (writer != null)
+            {
+                var request = new { Type = "GET_ALL_CLIENTS" };
+                await writer.WriteLineAsync(JsonConvert.SerializeObject(request));
             }
         }
     }

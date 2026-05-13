@@ -10,28 +10,34 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Net;
 using System.Net.NetworkInformation;
+using Newtonsoft.Json;
 
 namespace ClientB
 {
     public partial class MonitoringForm : Form
     {
-        // Khai báo bộ đếm hiệu năng (Đã xóa ramCounter vì không cần dùng nữa)
+        // ==========================================
+        // CÁC BIẾN TOÀN CỤC
+        // ==========================================
         private PerformanceCounter cpuCounter;
-
-        // Biến lưu trữ giá trị mạng để tính toán tốc độ (Kbps)
         private long prevBytesReceived = 0;
         private long prevBytesSent = 0;
 
-        // Hardcode thông tin định danh của Client B
-        private int currentClientId = 1;
+        // 
+        private string currentClientId = "";
         private string machineName = Environment.MachineName;
-        private string ipAddress = "127.0.0.1"; // Tạm fix cứng IP LAN để test
+        private string ipAddress = "127.0.0.1";
 
-        private StreamWriter currentWriter;
-
-        // Biến toàn cục duy trì đường hầm mạng mTLS
+        // Giao tiếp mạng mTLS
         private TcpClient currentClient;
         private SslStream currentSslStream;
+        private StreamWriter currentWriter;
+        private StreamReader currentReader;
+
+        // Danh sách các tiến trình lõi cấm bị Kill
+        private readonly string[] protectedProcesses = {
+            "svchost", "explorer", "csrss", "wininit", "smss", "services", "lsass", "system"
+        };
 
         public MonitoringForm()
         {
@@ -41,31 +47,28 @@ namespace ClientB
         }
 
         // ==========================================
-        // 1. KHỞI TẠO BỘ ĐẾM PHẦN CỨNG
+        // 1. KHỞI TẠO BỘ ĐẾM HIỆU NĂNG
         // ==========================================
         private void InitializeCounters()
         {
             try
             {
-                // Khởi tạo đo phần trăm CPU
                 cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-
-                // Lấy đà cho CPU
-                cpuCounter.NextValue();
+                cpuCounter.NextValue(); // Lấy đà cho CPU
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Không thể khởi tạo bộ đếm phần cứng: " + ex.Message, "Lỗi Hệ Thống", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Lỗi khởi tạo bộ đếm: " + ex.Message, "Lỗi Hệ Thống", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         // ==========================================
-        // 2. XỬ LÝ NÚT START (MỞ ĐƯỜNG HẦM mTLS)
+        // 2. MỞ ĐƯỜNG HẦM mTLS & KẾT NỐI SERVER
         // ==========================================
         private async void btnStart_Click(object sender, EventArgs e)
         {
             btnStart.Enabled = false;
-            lblStatus.Text = "Đang thiết lập kênh mTLS...";
+            lblStatus.Text = "Trạng thái: Đang thiết lập kênh mTLS...";
             lblStatus.ForeColor = System.Drawing.Color.DarkOrange;
 
             bool isConnected = await ConnectToServerAsync();
@@ -73,9 +76,9 @@ namespace ClientB
             if (isConnected)
             {
                 btnStop.Enabled = true;
-                lblStatus.Text = "Đang gửi dữ liệu (OK)";
+                lblStatus.Text = $"Trạng thái: Đang gửi dữ liệu (ID: {currentClientId})"; // Hiển thị ID để dễ kiểm tra
                 lblStatus.ForeColor = System.Drawing.Color.Green;
-                timerPush.Start();
+                timerPush.Start(); // Bắt đầu gửi dữ liệu mỗi 2 giây
             }
             else
             {
@@ -83,9 +86,6 @@ namespace ClientB
             }
         }
 
-        // ==========================================
-        // 3. HÀM KẾT NỐI VÀ XÁC THỰC mTLS
-        // ==========================================
         private async Task<bool> ConnectToServerAsync()
         {
             try
@@ -93,12 +93,13 @@ namespace ClientB
                 currentClient = new TcpClient();
                 currentClient.NoDelay = true;
 
-                var connectTask = currentClient.ConnectAsync("127.0.0.1", 8888); // Lưu ý: Port bên Server là 5000 nhé (code cũ của bạn đang để 8888)
+                var connectTask = currentClient.ConnectAsync("192.168.31.198", 8888);
                 if (await Task.WhenAny(connectTask, Task.Delay(2000)).ConfigureAwait(false) != connectTask)
                     throw new TimeoutException("Máy chủ không phản hồi.");
 
                 await connectTask.ConfigureAwait(false);
 
+                // Bắt tay mTLS với chứng chỉ ECC
                 NetworkStream netStream = currentClient.GetStream();
                 currentSslStream = new SslStream(netStream, false, ValidateServerCertificate);
 
@@ -107,7 +108,40 @@ namespace ClientB
 
                 await currentSslStream.AuthenticateAsClientAsync("RemoteMonitorServer", clientCerts, SslProtocols.Tls12, false).ConfigureAwait(false);
 
+                // Khởi tạo kênh Đọc - Ghi
                 currentWriter = new StreamWriter(currentSslStream, Encoding.UTF8) { AutoFlush = true };
+                currentReader = new StreamReader(currentSslStream, Encoding.UTF8);
+
+                // =========================================================
+                // TỰ ĐỘNG XIN CẤP PHÁT ID TỪ SERVER
+                // =========================================================
+
+                // 1. Gửi thông tin của mình lên Server
+                var regData = new { Type = "REGISTER_AGENT", MachineName = machineName, IP = ipAddress };
+                await currentWriter.WriteLineAsync(JsonConvert.SerializeObject(regData));
+
+                // 2. Chờ Server duyệt và gửi mã số ID về
+                string response = await currentReader.ReadLineAsync();
+
+                if (response != null && response.StartsWith("AGENT_ID"))
+                {
+                    // Nhận thẻ ID (ví dụ: "1", "2") và gắn vào biến toàn cục
+                    currentClientId = response.Substring("AGENT_ID ".Length).Trim();
+
+                    // Hiện lên màn hình để dễ kiểm tra
+                    this.Invoke((Action)(() => {
+                        lblStatus.Text = $"Trạng thái: Nhận ID [{currentClientId}]. Đang gửi dữ liệu...";
+                        lblStatus.ForeColor = System.Drawing.Color.Green;
+                    }));
+                }
+                else
+                {
+                    throw new Exception("Server từ chối cấp phát ID.");
+                }
+                // =========================================================
+
+                // Kích hoạt luồng chạy ngầm để lắng nghe lệnh Remote Kill từ Server
+                _ = Task.Run(() => ListenForCommands());
 
                 return true;
             }
@@ -120,26 +154,56 @@ namespace ClientB
                 return false;
             }
         }
-
         // ==========================================
-        // 4. XỬ LÝ NÚT STOP
+        // 3. LUỒNG LẮNG NGHE LỆNH TỪ XA (REMOTE KILL)
         // ==========================================
-        private void btnStop_Click(object sender, EventArgs e)
+        private async Task ListenForCommands()
         {
-            timerPush.Stop();
+            try
+            {
+                string cmdJson;
+                while ((cmdJson = await currentReader.ReadLineAsync()) != null)
+                {
+                    dynamic cmd = JsonConvert.DeserializeObject(cmdJson);
 
-            currentWriter?.Close();
-            currentSslStream?.Close();
-            currentClient?.Close();
+                    if (cmd.Type == "KILL_COMMAND")
+                    {
+                        // Lấy tên process và loại bỏ đuôi .exe
+                        string pName = ((string)cmd.ProcessName).Replace(".exe", "").ToLower();
 
-            btnStart.Enabled = true;
-            btnStop.Enabled = false;
-            lblStatus.Text = "Đã dừng.";
-            lblStatus.ForeColor = System.Drawing.Color.Red;
+                        // KIỂM TRA BẢO MẬT: Chặn lệnh nếu nhắm vào tiến trình hệ thống
+                        bool isProtected = false;
+                        foreach (string proc in protectedProcesses)
+                        {
+                            if (pName == proc) { isProtected = true; break; }
+                        }
+                        if (isProtected) continue; // Bỏ qua lệnh Kill này để bảo vệ máy
+
+                        // Thực thi tiêu diệt tiến trình
+                        Process[] processes = Process.GetProcessesByName(pName);
+                        foreach (var process in processes)
+                        {
+                            try
+                            {
+                                process.Kill();
+                            }
+                            catch { /* Bỏ qua các lỗi Access Denied để không crash Client B */ }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                this.Invoke((Action)(() => {
+                    btnStop_Click(null, null);
+                    lblStatus.Text = "Luồng lệnh bị ngắt: " + ex.Message;
+                    lblStatus.ForeColor = System.Drawing.Color.Red;
+                }));
+            }
         }
 
         // ==========================================
-        // 5. TIMER CHẠY NGẦM GỬI DỮ LIỆU
+        // 4. THU THẬP & ĐẨY DỮ LIỆU TÀI NGUYÊN (JSON)
         // ==========================================
         private bool _isSending = false;
         private async void timerPush_Tick(object sender, EventArgs e)
@@ -155,29 +219,25 @@ namespace ClientB
                     return;
                 }
 
-                // --- 1. LẤY CPU ---
+                // --- Thu thập CPU ---
                 float cpuVal = await Task.Run(() => cpuCounter.NextValue()).ConfigureAwait(false);
                 string cpu = Math.Round(cpuVal, 1).ToString();
 
-                // --- 2. LẤY % RAM ĐÃ SỬ DỤNG (FIX CHUẨN) ---
+                // --- Thu thập RAM ---
                 Microsoft.VisualBasic.Devices.ComputerInfo ci = new Microsoft.VisualBasic.Devices.ComputerInfo();
                 double totalRamMB = ci.TotalPhysicalMemory / (1024.0 * 1024.0);
                 double availableRamMB = ci.AvailablePhysicalMemory / (1024.0 * 1024.0);
                 double usedRamMB = totalRamMB - availableRamMB;
-                double ramUsagePercent = (usedRamMB / totalRamMB) * 100;
-                string ramUsage = Math.Round(ramUsagePercent, 1).ToString();
+                string ramUsage = Math.Round((usedRamMB / totalRamMB) * 100, 1).ToString();
 
-                // --- 3. LẤY % ĐĨA CỨNG ---
+                // --- Thu thập Ổ đĩa ---
                 DriveInfo drive = new DriveInfo("C");
                 double diskFreePercent = (double)drive.AvailableFreeSpace / drive.TotalSize * 100;
                 string disk = Math.Round(100 - diskFreePercent, 1).ToString();
 
-                // --- 4. LẤY MẠNG ---
-                long currentReceived = 0;
-                long currentSent = 0;
-
-                NetworkInterface[] interfaces = NetworkInterface.GetAllNetworkInterfaces();
-                foreach (NetworkInterface ni in interfaces)
+                // --- Thu thập Mạng ---
+                long currentReceived = 0, currentSent = 0;
+                foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
                 {
                     if (ni.OperationalStatus == OperationalStatus.Up)
                     {
@@ -185,62 +245,51 @@ namespace ClientB
                         currentSent += ni.GetIPv4Statistics().BytesSent;
                     }
                 }
-
-                double downloadSpeedKBps = 0;
-                double uploadSpeedKBps = 0;
-
-                if (prevBytesReceived != 0 && prevBytesSent != 0)
-                {
-                    downloadSpeedKBps = (currentReceived - prevBytesReceived) / 2.0 / 1024.0;
-                    uploadSpeedKBps = (currentSent - prevBytesSent) / 2.0 / 1024.0;
-                }
+                double downloadSpeedKBps = (prevBytesReceived != 0) ? (currentReceived - prevBytesReceived) / 2.0 / 1024.0 : 0;
+                double uploadSpeedKBps = (prevBytesSent != 0) ? (currentSent - prevBytesSent) / 2.0 / 1024.0 : 0;
 
                 prevBytesReceived = currentReceived;
                 prevBytesSent = currentSent;
 
-                string netDown = Math.Round(downloadSpeedKBps, 1).ToString();
-                string netUp = Math.Round(uploadSpeedKBps, 1).ToString();
-
-                // --- 4.5. LẤY DANH SÁCH ỨNG DỤNG ĐANG CHẠY ---
-                // Dùng StringBuilder để nối chuỗi cho mượt
+                // --- Thu thập Danh sách ứng dụng ---
                 StringBuilder appBuilder = new StringBuilder();
-                Process[] processes = Process.GetProcesses(); // Lấy toàn bộ process trên máy
-
-                foreach (Process p in processes)
+                foreach (Process p in Process.GetProcesses())
                 {
                     try
                     {
-                        // Chỉ lấy những phần mềm có giao diện cửa sổ (MainWindowTitle) để lọc bỏ các Service chạy ngầm
                         if (!string.IsNullOrEmpty(p.MainWindowTitle))
                         {
-                            // Lấy lượng RAM mà phần mềm đang chiếm (đổi từ Byte sang MB)
                             long memoryMB = p.WorkingSet64 / (1024 * 1024);
-
-                            // Nối vào chuỗi theo định dạng: Tên_Process.exe|Tiêu_đề_cửa_sổ|RAM_MB;
                             appBuilder.Append($"{p.ProcessName}.exe|{p.MainWindowTitle}|{memoryMB} MB;");
                         }
                     }
-                    catch
-                    {
-                        // Bỏ qua các process hệ thống bị từ chối quyền truy cập (Access Denied)
-                    }
+                    catch { }
                 }
-
-                string appList = appBuilder.ToString();
-                // Bỏ dấu ';' ở cuối cùng nếu có
-                if (appList.EndsWith(";")) appList = appList.TrimEnd(';');
+                string appList = appBuilder.ToString().TrimEnd(';');
                 if (string.IsNullOrEmpty(appList)) appList = "NONE";
-                // --- 5. ĐÓNG GÓI VÀ GỬI ---
-                string pushMessage = $"PUSH_RESOURCE {currentClientId} {cpu} {ramUsage} {disk} " +
-                                     $"{netDown} {netUp} {machineName} {ipAddress} {appList}";
 
-                await currentWriter.WriteLineAsync(pushMessage).ConfigureAwait(false);
+                // --- ĐÓNG GÓI JSON & GỬI ---
+                var resourceData = new
+                {
+                    Type = "PUSH_RESOURCE",
+                    ClientId = currentClientId, // Lúc này đã tự động lấy tên máy (kiểu string)
+                    Cpu = cpu,
+                    Ram = ramUsage,
+                    Disk = disk,
+                    NetDown = Math.Round(downloadSpeedKBps, 1).ToString(),
+                    NetUp = Math.Round(uploadSpeedKBps, 1).ToString(),
+                    MachineName = machineName,
+                    IP = ipAddress,
+                    AppList = appList
+                };
+
+                await currentWriter.WriteLineAsync(JsonConvert.SerializeObject(resourceData));
             }
             catch
             {
                 this.Invoke((Action)(() => {
                     btnStop_Click(null, null);
-                    lblStatus.Text = "Máy chủ đã ngắt kết nối.";
+                    lblStatus.Text = "Trạng thái: Máy chủ đã ngắt kết nối.";
                     lblStatus.ForeColor = System.Drawing.Color.Red;
                 }));
             }
@@ -251,33 +300,59 @@ namespace ClientB
         }
 
         // ==========================================
-        // 6. XÁC THỰC CHỨNG CHỈ CỦA SERVER
+        // 5. CÁC HÀM TIỆN ÍCH KHÁC
         // ==========================================
+        private void btnStop_Click(object sender, EventArgs e)
+        {
+            timerPush.Stop();
+            currentWriter?.Close();
+            currentReader?.Close();
+            currentSslStream?.Close();
+            currentClient?.Close();
+
+            btnStart.Enabled = true;
+            btnStop.Enabled = false;
+            lblStatus.Text = "Trạng thái: Đã dừng.";
+            lblStatus.ForeColor = System.Drawing.Color.Red;
+        }
+
         private bool ValidateServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
         {
             if (certificate == null) return false;
             X509Certificate2 cert2 = new X509Certificate2(certificate);
-            if (cert2.Issuer.Contains("UIT_ECC_RootCA") && cert2.Subject.Contains("RemoteMonitorServer"))
-            {
-                return true;
-            }
-            return false;
+            return cert2.Issuer.Contains("UIT_ECC_RootCA") && cert2.Subject.Contains("RemoteMonitorServer");
         }
 
-        //=========================================
-        // 7. HÀM LẤY ĐỊA CHỈ IP LOCAL
-        //=========================================
         private string GetLocalIPAddress()
         {
-            var host = Dns.GetHostEntry(Dns.GetHostName());
-            foreach (var ip in host.AddressList)
+            string localIP = "127.0.0.1";
+            try
             {
-                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                // Duyệt qua tất cả các card mạng trên máy tính
+                foreach (NetworkInterface item in NetworkInterface.GetAllNetworkInterfaces())
                 {
-                    return ip.ToString();
+                    // Chỉ lấy các card mạng đang hoạt động (Up) và không phải là mạng nội bộ ảo (Loopback)
+                    if (item.OperationalStatus == OperationalStatus.Up &&
+                        item.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                    {
+                        var props = item.GetIPProperties();
+
+                        // ĐIỂM MẤU CHỐT: Chỉ lấy card mạng có Default Gateway (có lối ra Router/Internet)
+                        if (props.GatewayAddresses.Count > 0)
+                        {
+                            foreach (UnicastIPAddressInformation ip in props.UnicastAddresses)
+                            {
+                                if (ip.Address.AddressFamily == AddressFamily.InterNetwork) // Lấy IPv4
+                                {
+                                    return ip.Address.ToString(); // Trả về IP thật của Wi-Fi hoặc dây LAN
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            return "127.0.0.1";
+            catch { }
+            return localIP;
         }
     }
 }

@@ -8,6 +8,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Newtonsoft.Json; // <-- THÊM THƯ VIỆN NÀY ĐỂ XỬ LÝ JSON
 
 namespace ClientA
 {
@@ -28,7 +29,6 @@ namespace ClientA
             return Convert.ToBase64String(saltBytes);
         }
 
-        // Nhớ thêm chữ async vào đây
         private async void btnSubmitRegister_Click(object sender, EventArgs e)
         {
             string username = txtRegUsername.Text.Trim();
@@ -52,7 +52,8 @@ namespace ClientA
 
             try
             {
-                using (TcpClient client = new TcpClient("127.0.0.1", 8888))
+                // Lưu ý: Đổi "127.0.0.1" thành IP LAN của máy Server nếu bạn test qua mạng LAN
+                using (TcpClient client = new TcpClient("192.168.31.198", 8888))
                 using (NetworkStream netStream = client.GetStream())
                 using (SslStream sslStream = new SslStream(netStream, false, ValidateServerCertificate))
                 {
@@ -64,8 +65,16 @@ namespace ClientA
                     using (StreamReader reader = new StreamReader(sslStream, Encoding.UTF8))
                     using (StreamWriter writer = new StreamWriter(sslStream, Encoding.UTF8) { AutoFlush = true })
                     {
-                        // Gửi lệnh REGISTER (writer.WriteLineAsync tự nối \n)
-                        await writer.WriteLineAsync($"REGISTER {username} {passwordHash} {salt}");
+                        // --- ĐÃ SỬA: Đóng gói dữ liệu thành chuẩn JSON ---
+                        var regRequest = new
+                        {
+                            Type = "REGISTER",
+                            Username = username,
+                            Password = passwordHash,
+                            Salt = salt
+                        };
+
+                        await writer.WriteLineAsync(JsonConvert.SerializeObject(regRequest));
 
                         // Nhận phản hồi
                         string response = await reader.ReadLineAsync();
