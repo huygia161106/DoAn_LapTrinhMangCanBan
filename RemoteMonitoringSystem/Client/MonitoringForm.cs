@@ -27,6 +27,7 @@ namespace Client
         private string currentShareCode = "";
         private string machineName = Environment.MachineName;
         private string ipAddress = "127.0.0.1";
+        private string currentUsername;
 
         // Giao tiếp mạng mTLS
         private TcpClient currentClient;
@@ -39,11 +40,12 @@ namespace Client
             "svchost", "explorer", "csrss", "wininit", "smss", "services", "lsass", "system"
         };
 
-        public MonitoringForm()
+        public MonitoringForm(string username)
         {
             InitializeComponent();
             InitializeCounters();
             ipAddress = GetLocalIPAddress();
+            currentUsername = username;
         }
 
         // ==========================================
@@ -117,15 +119,15 @@ namespace Client
                 // =========================================================
 
                 // 1. Gửi thông tin của mình lên Server
-                var regData = new { Type = "REGISTER_AGENT", MachineName = machineName, IP = ipAddress };
+                var regData = new { Type = "REGISTER_AGENT", MachineName = machineName, IP = ipAddress, Username = currentUsername };
                 await currentWriter.WriteLineAsync(JsonConvert.SerializeObject(regData));
 
                 // 2. Chờ Server duyệt và gửi mã số ID về
                 string response = await currentReader.ReadLineAsync();
 
-                if (response != null && response.StartsWith("SHARE_CODE"))
+                if (response != null && response.StartsWith("REGISTER_OK|"))
                 {
-                    currentShareCode = response.Substring("SHARE_CODE ".Length).Trim();
+                    currentShareCode = response.Substring("REGISTER_OK|".Length).Trim();
 
                     this.Invoke((Action)(() =>
                     {
@@ -147,6 +149,7 @@ namespace Client
                 _ = Task.Run(() => ListenForCommands());
 
                 return true;
+
             }
             catch (Exception ex)
             {
@@ -169,7 +172,8 @@ namespace Client
                 {
                     dynamic cmd = JsonConvert.DeserializeObject(cmdJson);
 
-                    if (cmd.Type == "KILL_COMMAND")
+                    if (cmd.Type == "KILL_PROCESS")
+
                     {
                         // Lấy tên process và loại bỏ đuôi .exe
                         string pName = ((string)cmd.ProcessName).Replace(".exe", "").ToLower();

@@ -78,19 +78,13 @@
             this.tabPage1 = new System.Windows.Forms.TabPage();
             this.btnRefreshList = new Guna.UI2.WinForms.Guna2Button();
             this.dgvClients = new Guna.UI2.WinForms.Guna2DataGridView();
+            this.label23 = new System.Windows.Forms.Label();
+            this.guna2PictureBox1 = new Guna.UI2.WinForms.Guna2PictureBox();
+            this.guna2AnimateWindow1 = new Guna.UI2.WinForms.Guna2AnimateWindow(this.components);
             this.colClientId = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.colMachineName = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.colOwner = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.label23 = new System.Windows.Forms.Label();
-            this.txtOwner = new System.Windows.Forms.TextBox();
-            this.txtMachineName = new System.Windows.Forms.TextBox();
-            this.txtClientId = new System.Windows.Forms.TextBox();
-            this.label22 = new System.Windows.Forms.Label();
-            this.label21 = new System.Windows.Forms.Label();
-            this.label20 = new System.Windows.Forms.Label();
-            this.label19 = new System.Windows.Forms.Label();
-            this.guna2PictureBox1 = new Guna.UI2.WinForms.Guna2PictureBox();
-            this.guna2AnimateWindow1 = new Guna.UI2.WinForms.Guna2AnimateWindow(this.components);
+            this.colStatus = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.guna2TabControl1.SuspendLayout();
             this.tabPage2.SuspendLayout();
             this.guna2TabControl2.SuspendLayout();
@@ -353,6 +347,7 @@
             // lblNetDown
             // 
             this.lblNetDown.AutoSize = true;
+            this.lblNetDown.ForeColor = System.Drawing.Color.White;
             this.lblNetDown.Location = new System.Drawing.Point(304, 110);
             this.lblNetDown.Name = "lblNetDown";
             this.lblNetDown.Size = new System.Drawing.Size(0, 25);
@@ -425,6 +420,7 @@
             // lblPercentDisk
             // 
             this.lblPercentDisk.AutoSize = true;
+            this.lblPercentDisk.ForeColor = System.Drawing.Color.White;
             this.lblPercentDisk.Location = new System.Drawing.Point(379, 77);
             this.lblPercentDisk.Name = "lblPercentDisk";
             this.lblPercentDisk.Size = new System.Drawing.Size(0, 25);
@@ -463,6 +459,7 @@
             // lblPercentRam
             // 
             this.lblPercentRam.AutoSize = true;
+            this.lblPercentRam.ForeColor = System.Drawing.Color.White;
             this.lblPercentRam.Location = new System.Drawing.Point(379, 48);
             this.lblPercentRam.Name = "lblPercentRam";
             this.lblPercentRam.Size = new System.Drawing.Size(0, 25);
@@ -481,6 +478,7 @@
             // lblPercentCPU
             // 
             this.lblPercentCPU.AutoSize = true;
+            this.lblPercentCPU.ForeColor = System.Drawing.Color.White;
             this.lblPercentCPU.Location = new System.Drawing.Point(379, 17);
             this.lblPercentCPU.Name = "lblPercentCPU";
             this.lblPercentCPU.Size = new System.Drawing.Size(0, 25);
@@ -499,6 +497,7 @@
             // lblNetUp
             // 
             this.lblNetUp.AutoSize = true;
+            this.lblNetUp.ForeColor = System.Drawing.Color.White;
             this.lblNetUp.Location = new System.Drawing.Point(133, 110);
             this.lblNetUp.Name = "lblNetUp";
             this.lblNetUp.Size = new System.Drawing.Size(0, 25);
@@ -593,13 +592,6 @@
             this.tabPage1.Controls.Add(this.btnRefreshList);
             this.tabPage1.Controls.Add(this.dgvClients);
             this.tabPage1.Controls.Add(this.label23);
-            this.tabPage1.Controls.Add(this.txtOwner);
-            this.tabPage1.Controls.Add(this.txtMachineName);
-            this.tabPage1.Controls.Add(this.txtClientId);
-            this.tabPage1.Controls.Add(this.label22);
-            this.tabPage1.Controls.Add(this.label21);
-            this.tabPage1.Controls.Add(this.label20);
-            this.tabPage1.Controls.Add(this.label19);
             this.tabPage1.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
             this.tabPage1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(192)))), ((int)(((byte)(128)))));
             this.tabPage1.Location = new System.Drawing.Point(184, 4);
@@ -619,9 +611,9 @@
             this.btnRefreshList.FillColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(192)))), ((int)(((byte)(0)))));
             this.btnRefreshList.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
             this.btnRefreshList.ForeColor = System.Drawing.Color.White;
-            this.btnRefreshList.Location = new System.Drawing.Point(36, 184);
+            this.btnRefreshList.Location = new System.Drawing.Point(6, 6);
             this.btnRefreshList.Name = "btnRefreshList";
-            this.btnRefreshList.Size = new System.Drawing.Size(143, 55);
+            this.btnRefreshList.Size = new System.Drawing.Size(205, 55);
             this.btnRefreshList.TabIndex = 21;
             this.btnRefreshList.Text = "Làm mới danh sách";
             this.btnRefreshList.Click += new System.EventHandler(this.btnRefreshList_Click);
@@ -646,7 +638,8 @@
             this.dgvClients.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this.colClientId,
             this.colMachineName,
-            this.colOwner});
+            this.colOwner,
+            this.colStatus});
             dataGridViewCellStyle3.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
             dataGridViewCellStyle3.BackColor = System.Drawing.Color.White;
             dataGridViewCellStyle3.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
@@ -656,12 +649,12 @@
             dataGridViewCellStyle3.WrapMode = System.Windows.Forms.DataGridViewTriState.False;
             this.dgvClients.DefaultCellStyle = dataGridViewCellStyle3;
             this.dgvClients.GridColor = System.Drawing.Color.Black;
-            this.dgvClients.Location = new System.Drawing.Point(11, 283);
+            this.dgvClients.Location = new System.Drawing.Point(14, 116);
             this.dgvClients.Name = "dgvClients";
             this.dgvClients.ReadOnly = true;
             this.dgvClients.RowHeadersVisible = false;
             this.dgvClients.RowHeadersWidth = 51;
-            this.dgvClients.Size = new System.Drawing.Size(1025, 309);
+            this.dgvClients.Size = new System.Drawing.Size(1025, 483);
             this.dgvClients.TabIndex = 20;
             this.dgvClients.ThemeStyle.AlternatingRowsStyle.BackColor = System.Drawing.Color.White;
             this.dgvClients.ThemeStyle.AlternatingRowsStyle.Font = null;
@@ -684,11 +677,32 @@
             this.dgvClients.ThemeStyle.RowsStyle.Height = 22;
             this.dgvClients.ThemeStyle.RowsStyle.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(231)))), ((int)(((byte)(229)))), ((int)(((byte)(255)))));
             this.dgvClients.ThemeStyle.RowsStyle.SelectionForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(71)))), ((int)(((byte)(69)))), ((int)(((byte)(94)))));
-            this.dgvClients.CellContentClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvClients_CellClick);
+            this.dgvClients.CellDoubleClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvClients_CellClick);
+            // 
+            // label23
+            // 
+            this.label23.AutoSize = true;
+            this.label23.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(192)))), ((int)(((byte)(128)))));
+            this.label23.Location = new System.Drawing.Point(3, 73);
+            this.label23.Name = "label23";
+            this.label23.Size = new System.Drawing.Size(214, 25);
+            this.label23.TabIndex = 19;
+            this.label23.Text = "--- Danh Sách Client ---";
+            // 
+            // guna2PictureBox1
+            // 
+            this.guna2PictureBox1.Image = ((System.Drawing.Image)(resources.GetObject("guna2PictureBox1.Image")));
+            this.guna2PictureBox1.ImageRotate = 0F;
+            this.guna2PictureBox1.Location = new System.Drawing.Point(6, 5);
+            this.guna2PictureBox1.Name = "guna2PictureBox1";
+            this.guna2PictureBox1.Size = new System.Drawing.Size(30, 27);
+            this.guna2PictureBox1.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
+            this.guna2PictureBox1.TabIndex = 3;
+            this.guna2PictureBox1.TabStop = false;
             // 
             // colClientId
             // 
-            this.colClientId.HeaderText = "ClientId";
+            this.colClientId.HeaderText = "ShareCode";
             this.colClientId.MinimumWidth = 6;
             this.colClientId.Name = "colClientId";
             this.colClientId.ReadOnly = true;
@@ -702,99 +716,16 @@
             // 
             // colOwner
             // 
-            this.colOwner.HeaderText = "Owner";
+            this.colOwner.HeaderText = "Username";
             this.colOwner.MinimumWidth = 6;
             this.colOwner.Name = "colOwner";
             this.colOwner.ReadOnly = true;
             // 
-            // label23
+            // colStatus
             // 
-            this.label23.AutoSize = true;
-            this.label23.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(192)))), ((int)(((byte)(128)))));
-            this.label23.Location = new System.Drawing.Point(6, 242);
-            this.label23.Name = "label23";
-            this.label23.Size = new System.Drawing.Size(294, 25);
-            this.label23.TabIndex = 19;
-            this.label23.Text = "--- Danh Sách Client Đã Thêm ---";
-            // 
-            // txtOwner
-            // 
-            this.txtOwner.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
-            this.txtOwner.Location = new System.Drawing.Point(205, 139);
-            this.txtOwner.Name = "txtOwner";
-            this.txtOwner.Size = new System.Drawing.Size(224, 33);
-            this.txtOwner.TabIndex = 16;
-            // 
-            // txtMachineName
-            // 
-            this.txtMachineName.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
-            this.txtMachineName.Location = new System.Drawing.Point(205, 100);
-            this.txtMachineName.Name = "txtMachineName";
-            this.txtMachineName.Size = new System.Drawing.Size(224, 33);
-            this.txtMachineName.TabIndex = 15;
-            // 
-            // txtClientId
-            // 
-            this.txtClientId.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
-            this.txtClientId.Location = new System.Drawing.Point(205, 63);
-            this.txtClientId.Name = "txtClientId";
-            this.txtClientId.Size = new System.Drawing.Size(224, 33);
-            this.txtClientId.TabIndex = 14;
-            // 
-            // label22
-            // 
-            this.label22.AutoSize = true;
-            this.label22.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
-            this.label22.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(192)))), ((int)(((byte)(192)))));
-            this.label22.Location = new System.Drawing.Point(31, 139);
-            this.label22.Name = "label22";
-            this.label22.Size = new System.Drawing.Size(72, 25);
-            this.label22.TabIndex = 13;
-            this.label22.Text = "Owner:";
-            // 
-            // label21
-            // 
-            this.label21.AutoSize = true;
-            this.label21.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
-            this.label21.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(192)))), ((int)(((byte)(192)))));
-            this.label21.Location = new System.Drawing.Point(30, 100);
-            this.label21.Name = "label21";
-            this.label21.Size = new System.Drawing.Size(144, 25);
-            this.label21.TabIndex = 12;
-            this.label21.Text = "Machine Name:";
-            // 
-            // label20
-            // 
-            this.label20.AutoSize = true;
-            this.label20.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
-            this.label20.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(192)))), ((int)(((byte)(192)))));
-            this.label20.Location = new System.Drawing.Point(29, 66);
-            this.label20.Name = "label20";
-            this.label20.Size = new System.Drawing.Size(83, 25);
-            this.label20.TabIndex = 11;
-            this.label20.Text = "ClientID:";
-            // 
-            // label19
-            // 
-            this.label19.AutoSize = true;
-            this.label19.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(163)));
-            this.label19.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(192)))), ((int)(((byte)(128)))));
-            this.label19.Location = new System.Drawing.Point(6, 13);
-            this.label19.Name = "label19";
-            this.label19.Size = new System.Drawing.Size(208, 25);
-            this.label19.TabIndex = 10;
-            this.label19.Text = "--- Thêm Client mới ---";
-            // 
-            // guna2PictureBox1
-            // 
-            this.guna2PictureBox1.Image = ((System.Drawing.Image)(resources.GetObject("guna2PictureBox1.Image")));
-            this.guna2PictureBox1.ImageRotate = 0F;
-            this.guna2PictureBox1.Location = new System.Drawing.Point(6, 5);
-            this.guna2PictureBox1.Name = "guna2PictureBox1";
-            this.guna2PictureBox1.Size = new System.Drawing.Size(30, 27);
-            this.guna2PictureBox1.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
-            this.guna2PictureBox1.TabIndex = 3;
-            this.guna2PictureBox1.TabStop = false;
+            this.colStatus.HeaderText = "Status";
+            this.colStatus.Name = "colStatus";
+            this.colStatus.ReadOnly = true;
             // 
             // MainForm
             // 
@@ -835,18 +766,8 @@
         private Guna.UI2.WinForms.Guna2TabControl guna2TabControl1;
         private System.Windows.Forms.TabPage tabPage1;
         private System.Windows.Forms.Label label23;
-        private System.Windows.Forms.TextBox txtOwner;
-        private System.Windows.Forms.TextBox txtMachineName;
-        private System.Windows.Forms.TextBox txtClientId;
-        private System.Windows.Forms.Label label22;
-        private System.Windows.Forms.Label label21;
-        private System.Windows.Forms.Label label20;
-        private System.Windows.Forms.Label label19;
         private System.Windows.Forms.TabPage tabPage2;
         private Guna.UI2.WinForms.Guna2DataGridView dgvClients;
-        private System.Windows.Forms.DataGridViewTextBoxColumn colClientId;
-        private System.Windows.Forms.DataGridViewTextBoxColumn colMachineName;
-        private System.Windows.Forms.DataGridViewTextBoxColumn colOwner;
         private Guna.UI2.WinForms.Guna2Button btnRefreshList;
         private System.Windows.Forms.Label lblNetDown;
         private System.Windows.Forms.Label label26;
@@ -883,5 +804,9 @@
         private System.Windows.Forms.ToolStripMenuItem menuEndTaskToolStripMenuItem;
         private Guna.UI2.WinForms.Guna2AnimateWindow guna2AnimateWindow1;
         private Guna.UI2.WinForms.Guna2TextBox txtShareCode;
+        private System.Windows.Forms.DataGridViewTextBoxColumn colClientId;
+        private System.Windows.Forms.DataGridViewTextBoxColumn colMachineName;
+        private System.Windows.Forms.DataGridViewTextBoxColumn colOwner;
+        private System.Windows.Forms.DataGridViewTextBoxColumn colStatus;
     }
 }

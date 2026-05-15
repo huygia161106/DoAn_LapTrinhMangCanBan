@@ -54,7 +54,9 @@ namespace Server
 
         private async Task HandleClientAsync(TcpClient client)
         {
-            string clientId = "Unknown";
+            StreamWriter writer = null;
+            string agentShareCode = null; // lưu shareCode nếu client này là Agent
+
             try
             {
                 using (SslStream sslStream = new SslStream(client.GetStream(), false, ValidateClientCertificate))
@@ -63,20 +65,17 @@ namespace Server
                     await sslStream.AuthenticateAsServerAsync(cert, true, SslProtocols.Tls12, false);
 
                     using (StreamReader reader = new StreamReader(sslStream, Encoding.UTF8))
-                    using (StreamWriter writer = new StreamWriter(sslStream, Encoding.UTF8) { AutoFlush = true })
                     {
+                        writer = new StreamWriter(sslStream, Encoding.UTF8) { AutoFlush = true };
+
                         string requestJson;
                         while ((requestJson = await reader.ReadLineAsync()) != null)
                         {
-                            // Giải mã gói tin JSON
                             dynamic data = JsonConvert.DeserializeObject(requestJson);
                             string type = data.Type;
 
                             switch (type)
                             {
-                                // ==========================================
-                                // NHÓM 1: LỆNH XÁC THỰC (TÀI KHOẢN ADMIN/USER)
-                                // ==========================================
                                 case "GET_SALT":
                                     string salt = db.GetUserSalt((string)data.Username);
                                     await writer.WriteLineAsync(salt != null ? $"SALT {salt}" : "NOT_FOUND");
@@ -90,10 +89,8 @@ namespace Server
 
                                 case "LOGIN":
                                     string role = db.ValidateUser((string)data.Username, (string)data.Password);
-
                                     if (role != null)
                                     {
-                                        // Gửi chữ LOGIN_OK kèm theo quyền của người đó (VD: "LOGIN_OK Admin" hoặc "LOGIN_OK User")
                                         await writer.WriteLineAsync($"LOGIN_OK {role}");
                                         connectedRoles[writer] = role;
                                         LogToScreen($"[HỆ THỐNG] Đăng nhập: {(string)data.Username} (Quyền: {role})");
@@ -104,65 +101,46 @@ namespace Server
                                     }
                                     break;
 
-                                // ==========================================
-                                // NHÓM 2: GIÁM SÁT & ĐIỀU KHIỂN (CLIENT B)
-                                // ==========================================
                                 case "REGISTER_AGENT":
                                     {
                                         string shareCode = GenerateShareCode();
-
                                         AgentSession session = new AgentSession
                                         {
                                             ShareCode = shareCode,
                                             MachineName = (string)data.MachineName,
                                             IP = (string)data.IP,
+                                            Username = (string)data.Username,
                                             Writer = writer,
                                             LatestData = ""
                                         };
-
                                         connectedAgents[shareCode] = session;
-
-                                        await writer.WriteLineAsync($"SHARE_CODE {shareCode}");
-
-                                        LogToScreen($"[AGENT ONLINE] {(string)data.MachineName} | CODE: {shareCode}");
-
+                                        agentShareCode = shareCode; // ✅ Lưu lại để finally dùng
+                                        await writer.WriteLineAsync($"REGISTER_OK|{shareCode}");
+                                        LogToScreen($"[AGENT ONLINE] {session.MachineName} | USER: {session.Username} | CODE: {shareCode}");
                                         break;
                                     }
+
                                 case "PUSH_RESOURCE":
                                     {
                                         string shareCode = (string)data.ShareCode;
-
                                         if (connectedAgents.TryGetValue(shareCode, out var session))
                                         {
                                             session.LatestData = requestJson;
-
-                                            LogToScreen(
-                                                $"[RESOURCE] {session.MachineName} | CPU: {(string)data.Cpu}% | RAM: {(string)data.Ram}%"
-                                            );
+                                            LogToScreen($"[RESOURCE] {session.MachineName} | CPU: {(string)data.Cpu}% | RAM: {(string)data.Ram}%");
                                         }
-
                                         break;
                                     }
+
                                 case "GET_LATEST_BY_CODE":
                                     {
                                         string shareCode = (string)data.ShareCode;
-
                                         if (connectedAgents.TryGetValue(shareCode, out var session))
-                                        {
-                                            await writer.WriteLineAsync(
-                                                $"LATEST_DATA {session.LatestData}"
-                                            );
-                                        }
+                                            await writer.WriteLineAsync($"LATEST_DATA {session.LatestData}");
                                         else
-                                        {
                                             await writer.WriteLineAsync("NO_DATA");
-                                        }
-
                                         break;
                                     }
-                                // ==========================================
-                                // NHÓM 3: PHỤC VỤ DASHBOARD MAINFORM
-                                // ==========================================
+
                                 case "GET_ALL_CLIENTS":
                                     {
                                         if (!IsAdmin(writer))
@@ -170,18 +148,14 @@ namespace Server
                                             await writer.WriteLineAsync("ACCESS_DENIED");
                                             break;
                                         }
-
-                                        string clients = string.Join(";",
-                                            connectedAgents.Select(c =>
-                                                $"{c.Key}|{c.Value.MachineName}|{c.Value.IP}"
-                                            ));
-
-                                        await writer.WriteLineAsync(clients);
-
+                                        string result = string.Join(";", connectedAgents.Values
+                                            .Select(s => $"{s.ShareCode}|{s.MachineName}|{s.Username}|ONLINE"));
+                                        await writer.WriteLineAsync(result);
+                                        LogToScreen($"[ADMIN] Gửi danh sách clients: {result}");
                                         break;
                                     }
+
                                 case "GET_LATEST":
-                                    // Đổ dữ liệu biểu đồ
                                     string latest = db.GetLatestResource((string)data.TargetClientId);
                                     await writer.WriteLineAsync(latest != null ? $"LATEST_DATA {latest}" : "NO_DATA");
                                     break;
@@ -191,42 +165,59 @@ namespace Server
                                         if (!IsAdmin(writer))
                                         {
                                             await writer.WriteLineAsync("ACCESS_DENIED");
-
                                             LogToScreen("[SECURITY] User cố dùng REMOTE_KILL");
-
                                             break;
                                         }
-
                                         string target = (string)data.TargetClientId;
                                         string processName = (string)data.ProcessName;
-
                                         if (connectedAgents.TryGetValue(target, out var session))
                                         {
-                                            await session.Writer.WriteLineAsync(
-                                                JsonConvert.SerializeObject(new
-                                                {
-                                                    Type = "KILL_PROCESS",
-                                                    ProcessName = processName
-                                                })
-                                            );
-
+                                            await session.Writer.WriteLineAsync(JsonConvert.SerializeObject(new
+                                            {
+                                                Type = "KILL_PROCESS",
+                                                ProcessName = processName
+                                            }));
                                             await writer.WriteLineAsync("KILL_SENT");
                                         }
                                         else
                                         {
                                             await writer.WriteLineAsync("CLIENT_NOT_FOUND");
                                         }
-
                                         break;
                                     }
-
+                                case "IDENTIFY_DASHBOARD":
+                                    {
+                                        string clientRole = (string)data.Role;
+                                        connectedRoles[writer] = clientRole; // Đăng ký quyền Admin/User cho kết nối mới này
+                                        LogToScreen($"[HỆ THỐNG] Xác thực lại kết nối: {(string)data.Username} (Quyền: {clientRole})");
+                                        break;
+                                    }
                             }
                         }
                     }
                 }
             }
-            catch (Exception ex) { LogToScreen($"[NGẮT KẾT NỐI] Client {clientId}: {ex.Message}"); }
-            finally { if (clientId != "Unknown") connectedAgents.TryRemove(clientId, out _); client.Close();}
+            catch (Exception ex)
+            {
+                LogToScreen($"[NGẮT KẾT NỐI] {ex.Message}");
+            }
+            finally
+            {
+                if (agentShareCode != null)
+                {
+                    connectedAgents.TryRemove(agentShareCode, out var removed);
+                    if (removed != null)
+                        LogToScreen($"[AGENT OFFLINE] {removed.MachineName} | CODE: {agentShareCode}");
+                }
+
+                if (writer != null)
+                {
+                    connectedRoles.TryRemove(writer, out _);
+                    writer.Close();
+                }
+
+                client.Close();
+            }
         }
 
         private bool ValidateClientCertificate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors)

@@ -22,6 +22,7 @@ namespace Client
         private string currentShareCode = "";
         private string currentUserRole; // Thêm biến lưu quyền
         private string currentUsername;
+        private System.Threading.SemaphoreSlim networkLock = new System.Threading.SemaphoreSlim(1, 1);
         // Biến dùng để Sort A-Z, Z-A
         private int sortColumn = -1; // Cột đang được chọn để sort
         private SortOrder sortOrder = SortOrder.None; // Chiều sort
@@ -105,6 +106,16 @@ namespace Client
                 // Khởi tạo các bộ đọc/ghi chuỗi
                 reader = new StreamReader(sslStream, Encoding.UTF8);
                 writer = new StreamWriter(sslStream, Encoding.UTF8) { AutoFlush = true };
+
+                // --- BỔ SUNG ĐOẠN NÀY ĐỂ TÁI XÁC THỰC QUYỀN ADMIN CHO KẾT NỐI MỚI ---
+                var identifyRequest = new
+                {
+                    Type = "IDENTIFY_DASHBOARD",
+                    Username = currentUsername,
+                    Role = currentUserRole
+                };
+                await writer.WriteLineAsync(JsonConvert.SerializeObject(identifyRequest));
+                // ------------------------------------------------------------------
 
                 return true;
             }
@@ -230,7 +241,7 @@ namespace Client
             }
 
             // --- BƯỚC MỚI: PHỤC HỒI LẠI TIẾN TRÌNH ĐÃ CHỌN ---
-            if (!string.IsNullOrEmpty(selectedProcess)) 
+            if (!string.IsNullOrEmpty(selectedProcess))
             {
                 foreach (ListViewItem item in listView1.Items)
                 {
@@ -269,77 +280,81 @@ namespace Client
             {
                 // 1. Kiểm tra mạng và xem đã chọn máy nào chưa
                 if (writer == null || reader == null) return;
-                if (string.IsNullOrEmpty(currentShareCode))
-                    return;
+                if (string.IsNullOrEmpty(currentShareCode)) return;
 
-                // 2. GỬI YÊU CẦU LẤY DỮ LIỆU
-                var fetchRequest = new
+                // BẮT ĐẦU KHÓA LUỒNG MẠNG (Xếp hàng chờ đến lượt)
+                await networkLock.WaitAsync();
+                try
                 {
-                    Type = "GET_LATEST_BY_CODE",
-                    ShareCode = currentShareCode
-                };
-                await writer.WriteLineAsync(JsonConvert.SerializeObject(fetchRequest));
-
-                // 3. NHẬN PHẢN HỒI TỪ SERVER
-                string response = await reader.ReadLineAsync();
-
-                if (response != null && response.StartsWith("LATEST_DATA"))
-                {
-                    // Lấy chuỗi JSON thực sự ở phía sau chữ "LATEST_DATA "
-                    string payload = response.Substring("LATEST_DATA ".Length).Trim();
-
-                    // --- ĐÂY LÀ ĐIỂM QUAN TRỌNG NHẤT: DÙNG JSON ĐỂ GIẢI MÃ ---
-                    dynamic data = JsonConvert.DeserializeObject(payload);
-
-                    if (data != null)
+                    // 2. GỬI YÊU CẦU LẤY DỮ LIỆU
+                    var fetchRequest = new
                     {
-                        // A. Cập nhật Biểu đồ (Ép kiểu an toàn từ JSON)
-                        double cpuPercent = Convert.ToDouble(data.Cpu);
-                        double ramPercent = Convert.ToDouble(data.Ram);
-                        double diskPercent = Convert.ToDouble(data.Disk);
+                        Type = "GET_LATEST_BY_CODE",
+                        ShareCode = currentShareCode
+                    };
+                    await writer.WriteLineAsync(JsonConvert.SerializeObject(fetchRequest));
 
-                        UpdateResourceChart(cpuPercent, ramPercent, diskPercent);
+                    // 3. NHẬN PHẢN HỒI TỪ SERVER
+                    string response = await reader.ReadLineAsync();
 
-                        // B. Cập nhật Label hệ thống
-                        string machineName = (string)data.MachineName;
-                        string ip = (string)data.IP;
-                        string netDown = (string)data.NetDown;
-                        string netUp = (string)data.NetUp;
+                    if (response == "ACCESS_DENIED")
+                    {
+                        timerFetchData.Stop();
+                        MessageBox.Show("Server từ chối quyền truy cập hệ thống của kết nối này!", "Lỗi Bảo Mật", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
 
-                        UpdateSystemInfo(machineName, ip, netDown, netUp);
+                    if (response != null && response.StartsWith("LATEST_DATA"))
+                    {
+                        // Lấy chuỗi JSON thực sự ở phía sau chữ "LATEST_DATA "
+                        string payload = response.Substring("LATEST_DATA ".Length).Trim();
 
-                        // C. Cập nhật Danh sách tiến trình
-                        string appList = (string)data.AppList;
-                        if (string.IsNullOrEmpty(appList) || appList == "NONE")
+                        // BẢO VỆ: Nếu chuỗi bóc tách không phải JSON, không được phép Deserialize công cụ
+                        if (!payload.StartsWith("{")) return;
+
+                        dynamic data = JsonConvert.DeserializeObject(payload);
+
+                        if (data != null)
                         {
-                            UpdateAppList("NONE");
-                        }
-                        else
-                        {
-                            UpdateAppList(appList);
+                            // A. Cập nhật Biểu đồ (Ép kiểu an toàn từ JSON)
+                            double cpuPercent = Convert.ToDouble(data.Cpu);
+                            double ramPercent = Convert.ToDouble(data.Ram);
+                            double diskPercent = Convert.ToDouble(data.Disk);
+
+                            UpdateResourceChart(cpuPercent, ramPercent, diskPercent);
+
+                            // B. Cập nhật Label hệ thống
+                            string machineName = (string)data.MachineName;
+                            string ip = (string)data.IP;
+                            string netDown = (string)data.NetDown;
+                            string netUp = (string)data.NetUp;
+
+                            UpdateSystemInfo(machineName, ip, netDown, netUp);
+
+                            // C. Cập nhật Danh sách tiến trình
+                            string appList = (string)data.AppList;
+                            if (string.IsNullOrEmpty(appList) || appList == "NONE")
+                            {
+                                UpdateAppList("NONE");
+                            }
+                            else
+                            {
+                                UpdateAppList(appList);
+                            }
                         }
                     }
-                }
-                else if (response == "NO_DATA")
-                {
-                    this.Invoke(new Action(() => {
-                        lblip.Text = "Trạng thái: Máy trạm chưa có dữ liệu.";
-                    }));
-                }
-
-                else if (response != null && response.StartsWith("CLIENT_LIST"))
-                {
-                    string listPayload = response.Substring("CLIENT_LIST ".Length).Trim();
-                    dynamic clients = JsonConvert.DeserializeObject(listPayload);
-
-                    this.Invoke(new Action(() => {
-                        dgvClients.Rows.Clear();
-                        foreach (var c in clients)
+                    else if (response == "NO_DATA")
+                    {
+                        this.Invoke(new Action(() =>
                         {
-                            // Gắn vào bảng: Cột 0 (ID), Cột 1 (Tên máy), Cột 2 (IP)
-                            dgvClients.Rows.Add((string)c.ClientId, (string)c.MachineName, (string)c.IP);
-                        }
-                    }));
+                            lblip.Text = "Trạng thái: Máy trạm chưa có dữ liệu.";
+                        }));
+                    }
+                }
+                finally
+                {
+                    // MỞ KHÓA LUỒNG MẠNG để hàm khác sử dụng
+                    networkLock.Release();
                 }
             }
             catch (Exception ex)
@@ -363,17 +378,6 @@ namespace Client
             writer?.Close();
             client?.Close();
             Application.Exit();
-        }
-
-        private async void EndTask_Click(object sender, EventArgs e)
-        {
-            if (listView1.SelectedItems.Count > 0)
-            {
-                string pName = listView1.SelectedItems[0].Text;
-                var cmd = new { Type = "REMOTE_KILL", TargetClientId = "1", ProcessName = pName };
-                await writer.WriteLineAsync(JsonConvert.SerializeObject(cmd));
-                MessageBox.Show($"Đã gửi lệnh tắt: {pName}");
-            }
         }
 
         private void listView1_ColumnClick(object sender, ColumnClickEventArgs e)
@@ -511,10 +515,58 @@ namespace Client
 
         private async void btnRefreshList_Click(object sender, EventArgs e)
         {
-            if (writer != null)
+            if (writer == null || reader == null) return;
+
+            await networkLock.WaitAsync();
+            try
             {
-                var request = new { Type = "GET_ALL_CLIENTS" };
+                var request = new
+                {
+                    Type = "GET_ALL_CLIENTS"
+                };
+
                 await writer.WriteLineAsync(JsonConvert.SerializeObject(request));
+
+                string response = await reader.ReadLineAsync();
+
+                if (string.IsNullOrEmpty(response)) return;
+
+                // BẢO VỆ CHẶN LỖI: Nếu server từ chối, hiện thông báo thay vì chạy tiếp để tránh vỡ mảng
+                if (response == "ACCESS_DENIED")
+                {
+                    MessageBox.Show("Server từ chối quyền lấy danh sách máy trạm! Bạn không có quyền Admin.", "Lỗi Quyền Hạn", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                dgvClients.Rows.Clear();
+
+                string[] clients = response.Split(';');
+
+                foreach (string client in clients)
+                {
+                    if (string.IsNullOrWhiteSpace(client))
+                        continue;
+
+                    string[] parts = client.Split('|');
+
+                    if (parts.Length >= 4)
+                    {
+                        dgvClients.Rows.Add(
+                            parts[0], // ShareCode
+                            parts[1], // MachineName
+                            parts[2], // Username
+                            parts[3]  // Status
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi tải danh sách: " + ex.Message, "Lỗi Kết Nối", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                networkLock.Release();
             }
         }
         private void btnConnectCode_Click(object sender, EventArgs e)

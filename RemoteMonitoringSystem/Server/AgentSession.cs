@@ -13,5 +13,6 @@ namespace Server
         public StreamWriter Writer { get; set; }
 
         public string LatestData { get; set; }
+        public string Username { get; set; }
     }
 }

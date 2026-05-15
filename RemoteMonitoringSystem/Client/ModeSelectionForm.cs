@@ -23,7 +23,7 @@ namespace Client
         }
         private void btnShare_Click(object sender, EventArgs e)
         {
-            MonitoringForm form = new MonitoringForm();
+            MonitoringForm form = new MonitoringForm(currentUsername);
 
             form.Show();
 
