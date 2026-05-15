@@ -1,16 +1,16 @@
-﻿using System;
+﻿using Newtonsoft.Json; // Thư viện xử lý JSON chuyên nghiệp
+using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Net.Security;
-using System.Security.Authentication;
-using System.Security.Cryptography.X509Certificates;
-using System.Collections.Concurrent;
-using Newtonsoft.Json; // Thư viện xử lý JSON chuyên nghiệp
-
+using System.Linq;
 namespace Server
 {
     public partial class ServerForm : Form
@@ -19,7 +19,9 @@ namespace Server
         private DatabaseHelper db;
 
         // Quản lý các luồng gửi của Client B để có thể gửi lệnh "Kill" ngược xuống
-        private static ConcurrentDictionary<string, StreamWriter> connectedAgents = new ConcurrentDictionary<string, StreamWriter>();
+        private static ConcurrentDictionary<string, AgentSession> connectedAgents= new ConcurrentDictionary<string, AgentSession>();
+
+        private static ConcurrentDictionary<StreamWriter, string> connectedRoles = new ConcurrentDictionary<StreamWriter, string>();
 
         public ServerForm()
         {
@@ -93,6 +95,7 @@ namespace Server
                                     {
                                         // Gửi chữ LOGIN_OK kèm theo quyền của người đó (VD: "LOGIN_OK Admin" hoặc "LOGIN_OK User")
                                         await writer.WriteLineAsync($"LOGIN_OK {role}");
+                                        connectedRoles[writer] = role;
                                         LogToScreen($"[HỆ THỐNG] Đăng nhập: {(string)data.Username} (Quyền: {role})");
                                     }
                                     else
@@ -105,29 +108,78 @@ namespace Server
                                 // NHÓM 2: GIÁM SÁT & ĐIỀU KHIỂN (CLIENT B)
                                 // ==========================================
                                 case "REGISTER_AGENT":
-                                    // Cấp phát ID tự động cho Client B
-                                    string newId = db.RegisterOrGetAgent((string)data.MachineName, (string)data.IP);
-                                    await writer.WriteLineAsync($"AGENT_ID {newId}");
-                                    LogToScreen($"[HỆ THỐNG] Cấp ID [{newId}] cho máy {data.MachineName}");
-                                    break;
+                                    {
+                                        string shareCode = GenerateShareCode();
 
+                                        AgentSession session = new AgentSession
+                                        {
+                                            ShareCode = shareCode,
+                                            MachineName = (string)data.MachineName,
+                                            IP = (string)data.IP,
+                                            Writer = writer,
+                                            LatestData = ""
+                                        };
+
+                                        connectedAgents[shareCode] = session;
+
+                                        await writer.WriteLineAsync($"SHARE_CODE {shareCode}");
+
+                                        LogToScreen($"[AGENT ONLINE] {(string)data.MachineName} | CODE: {shareCode}");
+
+                                        break;
+                                    }
                                 case "PUSH_RESOURCE":
-                                    // Nhận dữ liệu tài nguyên và lưu luồng để Remote Kill
-                                    string currentAgentId = (string)data.ClientId;
-                                    connectedAgents[currentAgentId] = writer;
-                                    db.AddResourceHistory(currentAgentId, (string)data.Cpu, (string)data.Ram, (string)data.Disk, (string)data.NetDown, (string)data.NetUp, (string)data.AppList);
-                                    LogToScreen($"[TÀI NGUYÊN] Máy {currentAgentId} ({(string)data.MachineName} - {(string)data.IP}) | CPU: {(string)data.Cpu}% | RAM: {(string)data.Ram}% | Đĩa C: {(string)data.Disk}% | Mạng: ↓{(string)data.NetDown} KB/s ↑{(string)data.NetUp} KB/s");
-                                    break;
+                                    {
+                                        string shareCode = (string)data.ShareCode;
 
+                                        if (connectedAgents.TryGetValue(shareCode, out var session))
+                                        {
+                                            session.LatestData = requestJson;
+
+                                            LogToScreen(
+                                                $"[RESOURCE] {session.MachineName} | CPU: {(string)data.Cpu}% | RAM: {(string)data.Ram}%"
+                                            );
+                                        }
+
+                                        break;
+                                    }
+                                case "GET_LATEST_BY_CODE":
+                                    {
+                                        string shareCode = (string)data.ShareCode;
+
+                                        if (connectedAgents.TryGetValue(shareCode, out var session))
+                                        {
+                                            await writer.WriteLineAsync(
+                                                $"LATEST_DATA {session.LatestData}"
+                                            );
+                                        }
+                                        else
+                                        {
+                                            await writer.WriteLineAsync("NO_DATA");
+                                        }
+
+                                        break;
+                                    }
                                 // ==========================================
                                 // NHÓM 3: PHỤC VỤ DASHBOARD MAINFORM
                                 // ==========================================
                                 case "GET_ALL_CLIENTS":
-                                    // Đổ danh sách ra Tab Admin
-                                    string clientListJson = db.GetAllClientsList();
-                                    await writer.WriteLineAsync($"CLIENT_LIST {clientListJson}");
-                                    break;
+                                    {
+                                        if (!IsAdmin(writer))
+                                        {
+                                            await writer.WriteLineAsync("ACCESS_DENIED");
+                                            break;
+                                        }
 
+                                        string clients = string.Join(";",
+                                            connectedAgents.Select(c =>
+                                                $"{c.Key}|{c.Value.MachineName}|{c.Value.IP}"
+                                            ));
+
+                                        await writer.WriteLineAsync(clients);
+
+                                        break;
+                                    }
                                 case "GET_LATEST":
                                     // Đổ dữ liệu biểu đồ
                                     string latest = db.GetLatestResource((string)data.TargetClientId);
@@ -135,22 +187,46 @@ namespace Server
                                     break;
 
                                 case "REMOTE_KILL":
-                                    // Chuyển tiếp lệnh tắt tiến trình
-                                    string target = (string)data.TargetClientId;
-                                    if (connectedAgents.TryGetValue(target, out var agentWriter))
                                     {
-                                        var killCmd = new { Type = "KILL_COMMAND", ProcessName = (string)data.ProcessName };
-                                        await agentWriter.WriteLineAsync(JsonConvert.SerializeObject(killCmd));
-                                        LogToScreen($"[LỆNH ĐIỀU KHIỂN] Tắt {(string)data.ProcessName} trên máy {target}");
+                                        if (!IsAdmin(writer))
+                                        {
+                                            await writer.WriteLineAsync("ACCESS_DENIED");
+
+                                            LogToScreen("[SECURITY] User cố dùng REMOTE_KILL");
+
+                                            break;
+                                        }
+
+                                        string target = (string)data.TargetClientId;
+                                        string processName = (string)data.ProcessName;
+
+                                        if (connectedAgents.TryGetValue(target, out var session))
+                                        {
+                                            await session.Writer.WriteLineAsync(
+                                                JsonConvert.SerializeObject(new
+                                                {
+                                                    Type = "KILL_PROCESS",
+                                                    ProcessName = processName
+                                                })
+                                            );
+
+                                            await writer.WriteLineAsync("KILL_SENT");
+                                        }
+                                        else
+                                        {
+                                            await writer.WriteLineAsync("CLIENT_NOT_FOUND");
+                                        }
+
+                                        break;
                                     }
-                                    break;
+
                             }
                         }
                     }
                 }
             }
             catch (Exception ex) { LogToScreen($"[NGẮT KẾT NỐI] Client {clientId}: {ex.Message}"); }
-            finally { if (clientId != "Unknown") connectedAgents.TryRemove(clientId, out _); client.Close(); }
+            finally { if (clientId != "Unknown") connectedAgents.TryRemove(clientId, out _); client.Close();}
         }
 
         private bool ValidateClientCertificate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors)
@@ -165,6 +241,26 @@ namespace Server
             if (rtbLogs.InvokeRequired) { rtbLogs.Invoke(new Action(() => LogToScreen(msg))); return; }
             rtbLogs.AppendText($"{DateTime.Now:HH:mm:ss} - {msg}{Environment.NewLine}");
             rtbLogs.ScrollToCaret();
+        }
+        private string GenerateShareCode()
+        {
+            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+            Random rnd = new Random();
+
+            return "RM-" +
+                   new string(Enumerable.Repeat(chars, 8)
+                   .Select(s => s[rnd.Next(s.Length)])
+                   .ToArray());
+        }
+        private bool IsAdmin(StreamWriter writer)
+        {
+            if (connectedRoles.TryGetValue(writer, out string role))
+            {
+                return role == "Admin";
+            }
+
+            return false;
         }
     }
 }
